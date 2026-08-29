@@ -12,4 +12,3 @@ Thumbs.db
 coverage/
 apps/server/prisma/dev.db
 apps/server/prisma/dev.db-journal
-docs
