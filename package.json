@@ -1,0 +1,23 @@
+{
+  "name": "family-command-centre",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": ["apps/web", "apps/server"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace @family/web\" \"npm run dev --workspace @family/server\"",
+    "build": "npm run build --workspace @family/web && npm run build --workspace @family/server",
+    "start": "npm run start --workspace @family/server",
+    "prisma:generate": "npm run prisma:generate --workspace @family/server",
+    "prisma:migrate": "npm run prisma:migrate --workspace @family/server",
+    "prisma:deploy": "npm run prisma:deploy --workspace @family/server",
+    "prisma:seed": "npm run prisma:seed --workspace @family/server",
+    "railway:build": "npm install && npm run prisma:generate && npm run build",
+    "railway:start": "npm run prisma:deploy && npm run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

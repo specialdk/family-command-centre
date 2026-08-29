@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+}
+
+enum TaskList {
+  HOME
+  WORK
+  SCHOOL
+  UNALLOCATED
+}
+
+model FamilyMember {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  initials  String
+  role      String?
+  createdAt DateTime  @default(now())
+  tasks     Task[]
+  chores    Chore[]
+  events    Event[]
+}
+
+model Task {
+  id          Int          @id @default(autoincrement())
+  title       String
+  notes       String?
+  list        TaskList     @default(HOME)
+  status      TaskStatus   @default(OPEN)
+  dueAt       DateTime?
+  memberId    Int?
+  member      FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Event {
+  id          Int          @id @default(autoincrement())
+  title       String
+  location    String?
+  notes       String?
+  startsAt    DateTime
+  endsAt      DateTime
+  memberId    Int?
+  member      FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+}
+
+model Chore {
+  id          Int          @id @default(autoincrement())
+  title       String
+  cadence     String?
+  completed   Boolean      @default(false)
+  memberId    Int?
+  member      FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+}
+
+model Meal {
+  id          Int          @id @default(autoincrement())
+  name        String
+  notes       String?
+  plannedFor  DateTime?
+  createdAt   DateTime     @default(now())
+}
+
+model ShoppingItem {
+  id          Int          @id @default(autoincrement())
+  name        String
+  quantity    String?
+  store       String?
+  checked     Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+}
