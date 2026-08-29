@@ -10,7 +10,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const PROD = process.env.NODE_ENV === "production";
+const PROD = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
 const COOKIE_NAME = "family_auth";
 const COOKIE_SECRET = process.env.COOKIE_SECRET || "development-only-secret";
 const APP_PASSWORD = process.env.APP_PASSWORD || "change-me";

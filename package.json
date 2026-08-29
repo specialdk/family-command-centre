@@ -12,7 +12,7 @@
     "prisma:deploy": "npm run prisma:deploy --workspace @family/server",
     "prisma:seed": "npm run prisma:seed --workspace @family/server",
     "railway:build": "npm install && npm run prisma:generate && npm run build",
-    "railway:start": "npm run prisma:deploy && npm run start"
+    "railway:start": "npm run prisma:deploy && npm run prisma:seed && npm run start"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
