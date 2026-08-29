@@ -1,131 +1,114 @@
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  CalendarDays, CheckCircle2, Circle, Home, LogOut, Menu, Mic, Plus,
-  ShoppingCart, Soup, Users, WandSparkles, Repeat2, Printer
-} from "lucide-react";
+
+/* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
+   the rest render an honest placeholder rather than fake data. */
+const NAV = [
+  { key: "today",       emoji: "🏠",        label: "Today",       ready: true, today: true },
+  { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true },
+  { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true },
+  { key: "family",      emoji: "👨‍👩‍👧‍👦", label: "Family",      ready: true },
+  { key: "recipes",     emoji: "🍲",        label: "Recipes",     ready: true },
+  { key: "ideas",       emoji: "💡",        label: "Ideas" },
+  { key: "inputs",      emoji: "📥",        label: "Inputs" },
+  { key: "finances",    emoji: "💰",        label: "Finances" },
+  { key: "investments", emoji: "📈",        label: "Investments" },
+  { key: "shopping",    emoji: "🛒",        label: "Shopping",    ready: true },
+  { key: "how",         emoji: "?",         label: "How do I" },
+  { key: "uploads",     emoji: "＋",        label: "Uploads" }
+];
+
+const PLACEHOLDER = {
+  ideas:       "Somewhere to park the things the family half-decides — trips, projects, birthday plans — before they become tasks.",
+  inputs:      "Bank statements, receipts and documents get dropped here, then read and filed automatically.",
+  finances:    "Budget versus actual, and the handful of things worth looking at, without opening the whole spreadsheet.",
+  investments: "Holdings, super and the weekly movement, summarised rather than dumped.",
+  how:         "Short answers to the household questions nobody can ever remember the answer to.",
+  uploads:     "A single place to add anything — a photo of a recipe, a receipt, a school note."
+};
 
 const api = async (url, options = {}) => {
-  const response = await fetch(url, {
+  const res = await fetch(url, {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${response.status})`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed (${res.status})`);
   }
-  return response.json();
+  return res.json();
 };
 
-const fmtDate = (value) => value
-  ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(value))
-  : "No due date";
+const timeOf = (v) => v
+  ? new Intl.DateTimeFormat("en-AU", { hour: "numeric", minute: "2-digit" }).format(new Date(v))
+  : "Unscheduled";
+const dayOf = (v) => v
+  ? new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short" }).format(new Date(v))
+  : "No date";
+const greeting = () => {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+};
+const personClass = (member, members) => {
+  if (!member) return "person-family";
+  const known = ["rhian", "danielle", "lachie", "jack", "maddie"];
+  const name = member.name.toLowerCase();
+  return known.includes(name) ? `person-${name}` : "person-family";
+};
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [password, setPassword] = useState("");
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("today");
+  const [viewingId, setViewingId] = useState("");
   const [message, setMessage] = useState("");
-  const [capture, setCapture] = useState("");
-  const [memberId, setMemberId] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const load = async () => {
-    const result = await api("/api/dashboard");
-    setData(result);
-  };
+  const load = async () => setData(await api("/api/dashboard"));
 
   useEffect(() => {
     api("/api/session")
-      .then(s => {
-        setSession(s.authenticated);
-        if (s.authenticated) return load();
-      })
+      .then((s) => { setSession(s.authenticated); if (s.authenticated) return load(); })
       .catch(() => setSession(false));
   }, []);
+
+  const mutate = async (fn) => {
+    setSaving(true);
+    try { await fn(); await load(); }
+    catch (e) { setMessage(e.message); }
+    finally { setSaving(false); }
+  };
 
   const login = async (e) => {
     e.preventDefault();
     setMessage("");
     try {
       await api("/api/login", { method: "POST", body: JSON.stringify({ password }) });
-      setSession(true);
-      setPassword("");
-      await load();
+      setSession(true); setPassword(""); await load();
     } catch (e) { setMessage(e.message); }
   };
 
   const logout = async () => {
     await api("/api/logout", { method: "POST" });
-    setSession(false);
-    setData(null);
+    setSession(false); setData(null);
   };
 
-  const addTask = async (e) => {
-    e.preventDefault();
-    if (!capture.trim()) return;
-    await api("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify({
-        title: capture.trim(),
-        list: "HOME",
-        memberId: memberId || null
-      })
-    });
-    setCapture("");
-    setMemberId("");
-    await load();
-  };
+  const toggleTask = (t) => mutate(() => api(`/api/tasks/${t.id}`, {
+    method: "PATCH", body: JSON.stringify({ status: t.status === "DONE" ? "OPEN" : "DONE" })
+  }));
+  const toggleChore = (c) => mutate(() => api(`/api/chores/${c.id}`, {
+    method: "PATCH", body: JSON.stringify({ completed: !c.completed })
+  }));
+  const toggleShopping = (i) => mutate(() => api(`/api/shopping/${i.id}`, {
+    method: "PATCH", body: JSON.stringify({ checked: !i.checked })
+  }));
 
-  const toggleTask = async (task) => {
-    await api(`/api/tasks/${task.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status: task.status === "DONE" ? "OPEN" : "DONE" })
-    });
-    await load();
-  };
-
-  const assignTask = async (task, value) => {
-    await api(`/api/tasks/${task.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ memberId: value || null })
-    });
-    await load();
-  };
-
-  const toggleChore = async (chore) => {
-    await api(`/api/chores/${chore.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ completed: !chore.completed })
-    });
-    await load();
-  };
-
-  const toggleShopping = async (item) => {
-    await api(`/api/shopping/${item.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ checked: !item.checked })
-    });
-    await load();
-  };
-
-  const startVoice = () => {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) {
-      setMessage("Speech recognition is not available in this browser. Type into Quick Capture instead.");
-      return;
-    }
-    const rec = new Recognition();
-    rec.lang = "en-AU";
-    rec.interimResults = false;
-    rec.onresult = (event) => setCapture(event.results[0][0].transcript);
-    rec.onerror = () => setMessage("Voice capture could not be completed.");
-    rec.start();
-  };
-
-  const openTasks = useMemo(() => data?.tasks?.filter(t => t.status === "OPEN") || [], [data]);
-  const doneTasks = useMemo(() => data?.tasks?.filter(t => t.status === "DONE") || [], [data]);
+  const openTasks = useMemo(() => data?.tasks?.filter((t) => t.status === "OPEN") || [], [data]);
+  const doneTasks = useMemo(() => data?.tasks?.filter((t) => t.status === "DONE") || [], [data]);
+  const upcoming  = useMemo(() =>
+    (data?.events || []).filter((e) => new Date(e.endsAt) >= new Date())
+      .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)), [data]);
 
   if (session === null) return <div className="splash">Opening Family Command Centre…</div>;
 
@@ -133,14 +116,14 @@ export default function App() {
     return (
       <main className="login-page">
         <form className="login-card" onSubmit={login}>
-          <div className="logo">F</div>
+          <span>🏠</span>
           <h1>Family Command Centre</h1>
           <p>Private family access</p>
           <label>
             Family password
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} autoFocus />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
           </label>
-          <button className="primary" type="submit">Open dashboard</button>
+          <button type="submit">Open dashboard</button>
           {message && <div className="alert">{message}</div>}
         </form>
       </main>
@@ -149,121 +132,300 @@ export default function App() {
 
   if (!data) return <div className="splash">Loading family dashboard…</div>;
 
-  const nav = [
-    ["today", Home, "Today"],
-    ["calendar", CalendarDays, "Calendar"],
-    ["tasks", CheckCircle2, "Tasks"],
-    ["chores", Repeat2, "Chores"],
-    ["meals", Soup, "Meals"],
-    ["shopping", ShoppingCart, "Shopping"],
-    ["family", Users, "Family"]
-  ];
+  const current  = NAV.find((n) => n.key === tab) || NAV[0];
+  const viewing  = data.members.find((m) => String(m.id) === String(viewingId)) || data.members[0];
+  const parents  = data.members.filter((m) => m.role === "Parent").slice(0, 2);
 
   return (
     <div className="app-shell">
-      <aside className={menuOpen ? "sidebar open" : "sidebar"}>
-        <div className="brand"><div className="logo small">F</div><div><strong>Family</strong><span>Command Centre</span></div></div>
+      <aside className="nav-rail">
+        <div className="brand-mark"><span style={{ fontSize: 26 }}>🏡</span></div>
         <nav>
-          {nav.map(([key, Icon, label]) => (
-            <button key={key} className={tab === key ? "nav active" : "nav"} onClick={() => { setTab(key); setMenuOpen(false); }}>
-              <Icon size={19} /> {label}
-            </button>
-          ))}
+          <div className="sortable-nav">
+            {NAV.map((item) => (
+              <button
+                key={item.key}
+                className={[item.today ? "today-nav" : "", tab === item.key ? "active" : ""].filter(Boolean).join(" ")}
+                onClick={() => setTab(item.key)}
+                title={item.label}
+              >
+                {item.today && <em>HOME</em>}
+                <span>{item.emoji}</span>
+                <small>{item.label}</small>
+                {!item.today && <i className="nav-grip">⋮⋮</i>}
+              </button>
+            ))}
+          </div>
         </nav>
-        <button className="nav bottom" onClick={logout}><LogOut size={18}/> Sign out</button>
+        <button className="avatar-button" onClick={logout} title="Sign out">
+          {viewing?.initials || "—"}
+        </button>
       </aside>
 
-      <main className="content">
+      <div className="workspace">
         <header className="topbar">
-          <button className="icon mobile-menu" onClick={() => setMenuOpen(v => !v)} aria-label="Menu"><Menu /></button>
           <div>
-            <p className="eyebrow">Family Command Centre</p>
-            <h1>{nav.find(n => n[0] === tab)?.[2] || "Today"}</h1>
+            <p className="eyebrow">FAMILY COMMAND CENTRE</p>
+            <h1>{current.label}</h1>
           </div>
-          <button className="icon" onClick={() => window.print()} title="Print"><Printer size={20}/></button>
+          <div className="topbar-actions">
+            <div className="profile-picker">
+              Viewing as
+              <select value={viewingId} onChange={(e) => setViewingId(e.target.value)}>
+                {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+            <button className="round-button settings-button" title="Settings">⚙</button>
+            <button className="voice-button" onClick={() => setMessage("Sol is not connected yet.")}>
+              <span className="voice-mark"><i /><i /><i /><i /></span>
+              Talk to Sol
+            </button>
+            <div className="parent-stack">
+              {parents.map((p) => <span key={p.id}>{p.initials?.[0] || "?"}</span>)}
+            </div>
+          </div>
         </header>
 
-        {message && <div className="alert inline">{message}<button onClick={() => setMessage("")}>×</button></div>}
+        <div className="status-strip">
+          <span className={saving ? "status-pulse saving" : "status-pulse"} />
+          {openTasks.length} open {openTasks.length === 1 ? "task" : "tasks"} · {upcoming.length} upcoming
+          <span className="status-meta">Family view · {saving ? "Saving…" : "Saved"}</span>
+        </div>
 
-        <section className="quick-card no-print">
-          <div className="quick-title"><WandSparkles size={18}/><strong>Quick Capture</strong><span>Type or speak anything the family needs to remember.</span></div>
-          <form className="capture-row" onSubmit={addTask}>
-            <input value={capture} onChange={e => setCapture(e.target.value)} placeholder="e.g. Lachie needs sports uniform Thursday" />
-            <select value={memberId} onChange={e => setMemberId(e.target.value)} aria-label="Assign to">
-              <option value="">Unallocated</option>
-              {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-            <button type="button" className="icon voice" onClick={startVoice} title="Voice capture"><Mic size={19}/></button>
-            <button className="primary add" type="submit"><Plus size={18}/> Add</button>
-          </form>
-        </section>
+        <div className="page-body">
+          {message && <div className="alert" style={{ marginBottom: 18 }}>{message}</div>}
 
-        {tab === "today" && <Today data={data} openTasks={openTasks} toggleTask={toggleTask} toggleChore={toggleChore}/>}
-        {tab === "calendar" && <CalendarView events={data.events}/>}
-        {tab === "tasks" && <TaskView open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} assign={assignTask}/>}
-        {tab === "chores" && <ChoreView chores={data.chores} toggle={toggleChore}/>}
-        {tab === "meals" && <MealView meals={data.meals}/>}
-        {tab === "shopping" && <ShoppingView items={data.shopping} toggle={toggleShopping}/>}
-        {tab === "family" && <FamilyView members={data.members} tasks={data.tasks}/>}
-      </main>
+          {tab === "today" && (
+            <Today
+              viewing={viewing} members={data.members} upcoming={upcoming}
+              openTasks={openTasks} chores={data.chores}
+              toggleTask={toggleTask} toggleChore={toggleChore} onSeeAll={() => setTab("calendar")}
+            />
+          )}
+          {tab === "calendar" && <Calendar events={upcoming} members={data.members} />}
+          {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} />}
+          {tab === "family"   && <Family members={data.members} tasks={data.tasks} />}
+          {tab === "recipes"  && <Recipes meals={data.meals} />}
+          {tab === "shopping" && <Shopping items={data.shopping} toggle={toggleShopping} />}
+          {!current.ready && <Placeholder item={current} />}
+        </div>
+      </div>
     </div>
   );
 }
 
-function Today({ data, openTasks, toggleTask, toggleChore }) {
-  const upcoming = data.events.filter(e => new Date(e.endsAt) >= new Date()).slice(0, 4);
+function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, toggleChore, onSeeAll }) {
+  const openChores = chores.filter((c) => !c.completed);
   return (
     <>
-      <div className="stats">
-        <Stat label="Open tasks" value={openTasks.length}/>
-        <Stat label="Upcoming events" value={upcoming.length}/>
-        <Stat label="Chores remaining" value={data.chores.filter(c => !c.completed).length}/>
-        <Stat label="Shopping items" value={data.shopping.filter(i => !i.checked).length}/>
-      </div>
-      <div className="grid two">
-        <Card title="What needs doing">
-          {openTasks.slice(0,6).map(t => <CheckRow key={t.id} checked={false} onClick={() => toggleTask(t)} title={t.title} meta={t.member?.name || "Unallocated"}/>)}
-          {!openTasks.length && <Empty text="Nothing outstanding."/>}
-        </Card>
-        <Card title="Coming up">
-          {upcoming.map(e => <div className="event-row" key={e.id}><div className="date-box">{new Date(e.startsAt).getDate()}</div><div><strong>{e.title}</strong><span>{fmtDate(e.startsAt)}{e.member ? ` · ${e.member.name}` : ""}</span></div></div>)}
-          {!upcoming.length && <Empty text="No upcoming events yet."/>}
-        </Card>
-        <Card title="Chores">
-          {data.chores.filter(c=>!c.completed).slice(0,5).map(c => <CheckRow key={c.id} checked={c.completed} onClick={() => toggleChore(c)} title={c.title} meta={[c.member?.name,c.cadence].filter(Boolean).join(" · ")}/>)}
-          {!data.chores.filter(c=>!c.completed).length && <Empty text="Chores are clear."/>}
-        </Card>
-        <Card title="This week's meals">
-          {data.meals.slice(0,5).map(m => <div className="simple-row" key={m.id}><Soup size={17}/><div><strong>{m.name}</strong><span>{m.plannedFor ? fmtDate(m.plannedFor) : "Not scheduled"}</span></div></div>)}
-          {!data.meals.length && <Empty text="No meals planned yet."/>}
-        </Card>
+      <section className="today-hero">
+        <div>
+          <p className="eyebrow" style={{ color: "#f0c987" }}>YOUR DAY</p>
+          <h2>{greeting()}{viewing ? `, ${viewing.name}` : ""}</h2>
+          <p>
+            {openTasks.length
+              ? `${openTasks.length} thing${openTasks.length === 1 ? "" : "s"} to move forward today.`
+              : "Everything is clear for today."}
+          </p>
+        </div>
+        <button onClick={onSeeAll}>Full calendar →</button>
+      </section>
+
+      {openChores.length > 0 && (
+        <section className="today-reminders">
+          <p className="eyebrow">ROUTINES</p>
+          <h2>Still to do around the house</h2>
+          {openChores.slice(0, 5).map((c) => (
+            <article key={c.id}>
+              <span style={{ fontSize: 20 }}>🔁</span>
+              <div>
+                <strong>{c.title}</strong>
+                <small>{[c.member?.name, c.cadence].filter(Boolean).join(" · ") || "Anyone"}</small>
+              </div>
+              <button onClick={() => toggleChore(c)}>Done</button>
+            </article>
+          ))}
+        </section>
+      )}
+
+      <div className="today-grid">
+        <section className="agenda-card">
+          <div className="section-title">
+            <h2>Coming up</h2>
+            <button onClick={onSeeAll}>Full calendar →</button>
+          </div>
+          <div className="timeline">
+            {upcoming.slice(0, 6).map((e) => (
+              <article key={e.id}>
+                <time>{timeOf(e.startsAt)}</time>
+                <span className={`timeline-dot ${personClass(e.member, members)}`}
+                      style={{ color: "var(--member-color, var(--navy))" }} />
+                <div>
+                  <strong>{e.title}</strong>
+                  <small>{[dayOf(e.startsAt), e.location, e.member?.name].filter(Boolean).join(" · ")}</small>
+                </div>
+              </article>
+            ))}
+            {!upcoming.length && <p style={{ color: "var(--muted)" }}>Nothing scheduled.</p>}
+          </div>
+        </section>
+
+        <section className="task-card">
+          <div className="section-title"><h2>To do</h2><span className="count-badge">{openTasks.length}</span></div>
+          <div className="today-task-list">
+            {openTasks.slice(0, 8).map((t) => (
+              <button key={t.id} onClick={() => toggleTask(t)}>
+                <span className="task-check" />
+                <div>
+                  <strong>{t.title}</strong>
+                  <small>{[t.member?.name || "Unallocated", t.dueAt && dayOf(t.dueAt)].filter(Boolean).join(" · ")}</small>
+                </div>
+                <span style={{ color: "#c3c7d0" }}>›</span>
+              </button>
+            ))}
+            {!openTasks.length && <p style={{ color: "var(--muted)" }}>Everything is done for today.</p>}
+          </div>
+        </section>
       </div>
     </>
   );
 }
 
-function CalendarView({ events }) {
-  return <Card title="Family calendar">{events.map(e => <div className="event-row" key={e.id}><div className="date-box">{new Date(e.startsAt).getDate()}</div><div><strong>{e.title}</strong><span>{fmtDate(e.startsAt)} → {fmtDate(e.endsAt)}{e.location ? ` · ${e.location}` : ""}{e.member ? ` · ${e.member.name}` : ""}</span></div></div>)}{!events.length && <Empty text="No calendar events yet."/ >}</Card>;
+function Calendar({ events, members }) {
+  return (
+    <section className="agenda-card">
+      <div className="section-title"><h2>Family calendar</h2><span className="count-badge">{events.length}</span></div>
+      <div className="timeline">
+        {events.map((e) => (
+          <article key={e.id}>
+            <time>{timeOf(e.startsAt)}</time>
+            <span className={`timeline-dot ${personClass(e.member, members)}`}
+                  style={{ color: "var(--member-color, var(--navy))" }} />
+            <div>
+              <strong>{e.title}</strong>
+              <small>{[dayOf(e.startsAt), e.location, e.member?.name].filter(Boolean).join(" · ")}</small>
+            </div>
+          </article>
+        ))}
+        {!events.length && <p style={{ color: "var(--muted)" }}>No events yet.</p>}
+      </div>
+    </section>
+  );
 }
 
-function TaskView({ open, done, members, toggle, assign }) {
-  return <div className="grid two">
-    <Card title={`Open tasks (${open.length})`}>{open.map(t => <div className="task-edit" key={t.id}><CheckRow checked={false} onClick={()=>toggle(t)} title={t.title} meta={fmtDate(t.dueAt)}/><select value={t.memberId || ""} onChange={e=>assign(t,e.target.value)}><option value="">Unallocated</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>)}{!open.length && <Empty text="No open tasks."/>}</Card>
-    <Card title={`Completed (${done.length})`}>{done.slice(0,12).map(t => <CheckRow key={t.id} checked={true} onClick={()=>toggle(t)} title={t.title} meta={t.member?.name || "Unallocated"}/>)}{!done.length && <Empty text="No completed tasks yet."/>}</Card>
-  </div>;
+function Tasks({ open, done, members, toggle }) {
+  return (
+    <div className="today-grid">
+      <section className="task-card">
+        <div className="section-title"><h2>Open</h2><span className="count-badge">{open.length}</span></div>
+        <div className="today-task-list">
+          {open.map((t) => (
+            <button key={t.id} onClick={() => toggle(t)}>
+              <span className="task-check" />
+              <div>
+                <strong>{t.title}</strong>
+                <small>{[t.member?.name || "Unallocated", t.list].filter(Boolean).join(" · ")}</small>
+              </div>
+              <span style={{ color: "#c3c7d0" }}>›</span>
+            </button>
+          ))}
+          {!open.length && <p style={{ color: "var(--muted)" }}>Nothing outstanding.</p>}
+        </div>
+      </section>
+      <section className="task-card">
+        <div className="section-title"><h2>Recently done</h2><span className="count-badge">{done.length}</span></div>
+        <div className="today-task-list">
+          {done.slice(0, 12).map((t) => (
+            <button key={t.id} onClick={() => toggle(t)}>
+              <span className="task-check" style={{ background: "#7fbf8a", borderColor: "#7fbf8a" }}>✓</span>
+              <div>
+                <strong style={{ color: "#98a0ad", textDecoration: "line-through" }}>{t.title}</strong>
+                <small>{t.member?.name || "Unallocated"}</small>
+              </div>
+              <span />
+            </button>
+          ))}
+          {!done.length && <p style={{ color: "var(--muted)" }}>Nothing completed yet.</p>}
+        </div>
+      </section>
+    </div>
+  );
 }
 
-function ChoreView({ chores, toggle }) { return <Card title="Chore board">{chores.map(c=><CheckRow key={c.id} checked={c.completed} onClick={()=>toggle(c)} title={c.title} meta={[c.member?.name,c.cadence].filter(Boolean).join(" · ")}/>)}{!chores.length&&<Empty text="No chores configured yet."/>}</Card>; }
-function MealView({ meals }) { return <Card title="Meals & recipes">{meals.map(m=><div className="simple-row" key={m.id}><Soup size={18}/><div><strong>{m.name}</strong><span>{m.notes || (m.plannedFor ? fmtDate(m.plannedFor) : "Recipe / meal idea")}</span></div></div>)}{!meals.length&&<Empty text="No meals added yet."/>}</Card>; }
-function ShoppingView({ items, toggle }) { return <Card title="Shopping list">{items.map(i=><CheckRow key={i.id} checked={i.checked} onClick={()=>toggle(i)} title={`${i.name}${i.quantity ? ` · ${i.quantity}` : ""}`} meta={i.store || "Any store"}/>)}{!items.length&&<Empty text="Shopping list is empty."/>}</Card>; }
-
-function FamilyView({ members, tasks }) {
-  return <div className="member-grid">{members.map(m=>{const mine=tasks.filter(t=>t.memberId===m.id&&t.status==="OPEN").length;return <div className="member-card" key={m.id}><div className="avatar">{m.initials}</div><strong>{m.name}</strong><span>{m.role || "Family"}</span><div className="member-count">{mine} open task{mine===1?"":"s"}</div></div>})}</div>;
+function Family({ members, tasks }) {
+  return (
+    <div className="today-grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))" }}>
+      {members.map((m) => {
+        const mine = tasks.filter((t) => t.memberId === m.id && t.status === "OPEN").length;
+        return (
+          <section className="task-card" key={m.id}>
+            <div className={`section-title ${personClass(m, members)}`}>
+              <h2>{m.name}</h2>
+              <span className="count-badge">{m.initials}</span>
+            </div>
+            <p style={{ color: "var(--muted)", margin: "10px 0 0", fontSize: 15 }}>{m.role || "Family"}</p>
+            <p style={{ marginTop: 14, fontWeight: 800 }}>
+              {mine} open task{mine === 1 ? "" : "s"}
+            </p>
+          </section>
+        );
+      })}
+    </div>
+  );
 }
 
-function Stat({label,value}) { return <div className="stat"><span>{label}</span><strong>{value}</strong></div>; }
-function Card({title,children}) { return <section className="card"><h2>{title}</h2>{children}</section>; }
-function Empty({text}) { return <div className="empty">{text}</div>; }
-function CheckRow({checked,onClick,title,meta}) {
-  return <button className={checked ? "check-row done" : "check-row"} onClick={onClick}>{checked?<CheckCircle2 size={20}/>:<Circle size={20}/>}<div><strong>{title}</strong>{meta&&<span>{meta}</span>}</div></button>;
+function Recipes({ meals }) {
+  return (
+    <section className="agenda-card">
+      <div className="section-title"><h2>Meals &amp; recipes</h2><span className="count-badge">{meals.length}</span></div>
+      <div className="today-task-list">
+        {meals.map((m) => (
+          <div key={m.id} style={{ padding: "11px 0", borderTop: "1px solid #eef1f6" }}>
+            <strong style={{ fontSize: 15 }}>{m.name}</strong>
+            <small style={{ display: "block", color: "var(--muted)", marginTop: 3 }}>
+              {m.notes || (m.plannedFor ? dayOf(m.plannedFor) : "Not scheduled")}
+            </small>
+          </div>
+        ))}
+        {!meals.length && <p style={{ color: "var(--muted)" }}>No meals added yet.</p>}
+      </div>
+    </section>
+  );
+}
+
+function Shopping({ items, toggle }) {
+  const left = items.filter((i) => !i.checked);
+  return (
+    <section className="task-card" style={{ maxWidth: 720 }}>
+      <div className="section-title"><h2>Shopping list</h2><span className="count-badge">{left.length}</span></div>
+      <div className="today-task-list">
+        {items.map((i) => (
+          <button key={i.id} onClick={() => toggle(i)}>
+            <span className="task-check" style={i.checked ? { background: "#7fbf8a", borderColor: "#7fbf8a" } : undefined}>
+              {i.checked ? "✓" : ""}
+            </span>
+            <div>
+              <strong style={i.checked ? { color: "#98a0ad", textDecoration: "line-through" } : undefined}>
+                {i.name}{i.quantity ? ` · ${i.quantity}` : ""}
+              </strong>
+              <small>{i.store || "Any store"}</small>
+            </div>
+            <span />
+          </button>
+        ))}
+        {!items.length && <p style={{ color: "var(--muted)" }}>The list is empty.</p>}
+      </div>
+    </section>
+  );
+}
+
+function Placeholder({ item }) {
+  return (
+    <div className="module-placeholder">
+      <span>{item.emoji}</span>
+      <h2>{item.label}</h2>
+      <p>{PLACEHOLDER[item.key]}</p>
+      <p style={{ marginTop: 14, fontSize: 14, color: "#98a0ad" }}>Not built yet.</p>
+    </div>
+  );
 }
