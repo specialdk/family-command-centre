@@ -1,3 +1,9 @@
+// DRAFT — proposed replacement for schema.prisma. Not wired up yet.
+// Designed so the Calendar module and Microsoft Graph sync can be built once
+// rather than twice. Deliberately does NOT model Finances, Investments,
+// Recipes or Ideas: those are cheap to add later, whereas getting Event and
+// Task wrong is expensive.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,77 +13,257 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------------------------------------------------------------- enums
+
+enum MemberRole {
+  PARENT
+  CHILD
+  OTHER
+}
+
+/// Where a record came from. Drives sync behaviour and conflict handling.
+enum Source {
+  LOCAL
+  MICROSOFT
+  GOOGLE
+}
+
+/// How much of an event other family members may see.
+/// BUSY renders as "Busy - Rhian" with no detail: the privacy rule from the
+/// handover, so work calendars can sync without exposing their contents.
+enum Visibility {
+  FULL
+  BUSY
+  PRIVATE
+}
+
 enum TaskStatus {
   OPEN
   DONE
+  CANCELLED
 }
 
-enum TaskList {
-  HOME
-  WORK
-  SCHOOL
-  UNALLOCATED
+/// Chores are recurring tasks, not a separate thing. Rhian's own UI shows
+/// them together under "Tasks & routines".
+enum TaskKind {
+  TASK
+  CHORE
+  ROUTINE
 }
+
+// --------------------------------------------------------------- people
 
 model FamilyMember {
-  id        Int       @id @default(autoincrement())
-  name      String    @unique
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
   initials  String
-  role      String?
-  createdAt DateTime  @default(now())
-  tasks     Task[]
-  chores    Chore[]
-  events    Event[]
+  role      MemberRole @default(OTHER)
+  /// Maps to the CSS custom property: rhian | danielle | lachie | jack | maddie | family
+  colorKey  String?
+  /// Microsoft sign-in address. Null for members who do not sign in.
+  email     String?    @unique
+  canSignIn Boolean    @default(false)
+  sortOrder Int        @default(0)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  calendars        Calendar[]
+  events           Event[]
+  tasks            Task[]
+  taskLists        TaskList[]
+  externalAccounts ExternalAccount[]
+  activity         ActivityLog[]
+  shoppingAdded    ShoppingItem[]
 }
 
-model Task {
-  id          Int          @id @default(autoincrement())
-  title       String
-  notes       String?
-  list        TaskList     @default(HOME)
-  status      TaskStatus   @default(OPEN)
-  dueAt       DateTime?
-  memberId    Int?
-  member      FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+/// One per connected provider account. Tokens are encrypted at rest with
+/// TOKEN_ENCRYPTION_KEY, following the pattern Rhian already established.
+model ExternalAccount {
+  id                Int          @id @default(autoincrement())
+  memberId          Int
+  member            FamilyMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  provider          Source
+  providerAccountId String
+  accessTokenEnc    String?
+  refreshTokenEnc   String?
+  expiresAt         DateTime?
+  scopes            String?
+  connectedAt       DateTime     @default(now())
+
+  @@unique([provider, providerAccountId])
+}
+
+// ------------------------------------------------------------- calendar
+
+/// A person may have several (personal, work, shared family). Separate
+/// calendars are what make per-calendar privacy possible.
+model Calendar {
+  id                Int           @id @default(autoincrement())
+  name              String
+  /// Null means a shared family calendar.
+  memberId          Int?
+  member            FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  source            Source        @default(LOCAL)
+  externalId        String?
+  color             String?
+  syncEnabled       Boolean       @default(true)
+  defaultVisibility Visibility    @default(FULL)
+  /// Microsoft Graph delta token, so each sync fetches only what changed.
+  deltaToken        String?
+  lastSyncedAt      DateTime?
+  createdAt         DateTime      @default(now())
+
+  events Event[]
+
+  @@unique([source, externalId])
 }
 
 model Event {
-  id          Int          @id @default(autoincrement())
-  title       String
-  location    String?
-  notes       String?
-  startsAt    DateTime
-  endsAt      DateTime
-  memberId    Int?
-  member      FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  createdAt   DateTime     @default(now())
+  id         Int           @id @default(autoincrement())
+  calendarId Int
+  calendar   Calendar      @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  memberId   Int?
+  member     FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  title    String
+  location String?
+  notes    String?
+  startsAt DateTime
+  endsAt   DateTime
+  allDay   Boolean  @default(false)
+  /// IANA zone, e.g. Australia/Adelaide. Needed once events cross zones.
+  timeZone String?
+
+  /// RFC 5545 RRULE on the series parent; expanded at read time.
+  recurrenceRule      String?
+  recurrenceParentId  Int?
+  recurrenceParent    Event?  @relation("EventRecurrence", fields: [recurrenceParentId], references: [id], onDelete: Cascade)
+  recurrenceInstances Event[] @relation("EventRecurrence")
+  /// Set on an instance that was moved, so the series knows which one it replaces.
+  originalStartsAt    DateTime?
+  cancelled           Boolean @default(false)
+
+  visibility   Visibility @default(FULL)
+  source       Source     @default(LOCAL)
+  externalId   String?
+  externalEtag String?
+  lastSyncedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([source, externalId])
+  @@index([startsAt, endsAt])
+  @@index([memberId, startsAt])
 }
 
-model Chore {
-  id          Int          @id @default(autoincrement())
-  title       String
-  cadence     String?
-  completed   Boolean      @default(false)
-  memberId    Int?
-  member      FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  createdAt   DateTime     @default(now())
+// ---------------------------------------------------------------- tasks
+
+/// Microsoft To Do has user-defined lists, so this cannot stay an enum.
+model TaskList {
+  id         Int           @id @default(autoincrement())
+  name       String
+  source     Source        @default(LOCAL)
+  externalId String?
+  memberId   Int?
+  member     FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  sortOrder  Int           @default(0)
+  createdAt  DateTime      @default(now())
+
+  tasks Task[]
+
+  @@unique([source, externalId])
+}
+
+model Task {
+  id       Int           @id @default(autoincrement())
+  title    String
+  notes    String?
+  kind     TaskKind      @default(TASK)
+  status   TaskStatus    @default(OPEN)
+  listId   Int?
+  list     TaskList?     @relation(fields: [listId], references: [id], onDelete: SetNull)
+  memberId Int?
+  member   FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  dueAt DateTime?
+  /// When it was dragged onto someone's day. Distinct from dueAt: "do it
+  /// Saturday morning" is not the same as "it is due Saturday".
+  scheduledFor DateTime?
+  durationMins Int?
+  completedAt  DateTime?
+  /// The "Need help" column in Rhian's Tasks board.
+  needsHelp    Boolean   @default(false)
+
+  recurrenceRule String?
+  position       Int     @default(0)
+
+  source       Source    @default(LOCAL)
+  externalId   String?
+  externalEtag String?
+  lastSyncedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([source, externalId])
+  @@index([status, dueAt])
+  @@index([memberId, status])
+  @@index([scheduledFor])
+}
+
+// ------------------------------------------------- kept, lightly extended
+
+model ShoppingItem {
+  id        Int           @id @default(autoincrement())
+  name      String
+  quantity  String?
+  store     String?
+  checked   Boolean       @default(false)
+  position  Int           @default(0)
+  addedById Int?
+  addedBy   FamilyMember? @relation(fields: [addedById], references: [id], onDelete: SetNull)
+  createdAt DateTime      @default(now())
 }
 
 model Meal {
-  id          Int          @id @default(autoincrement())
-  name        String
-  notes       String?
-  plannedFor  DateTime?
-  createdAt   DateTime     @default(now())
+  id         Int       @id @default(autoincrement())
+  name       String
+  notes      String?
+  plannedFor DateTime?
+  createdAt  DateTime  @default(now())
 }
 
-model ShoppingItem {
-  id          Int          @id @default(autoincrement())
-  name        String
-  quantity    String?
-  store       String?
-  checked     Boolean      @default(false)
-  createdAt   DateTime     @default(now())
+// ----------------------------------------------------- audit and syncing
+
+/// Added early on purpose: retrofitting an audit trail once several people
+/// and two-way sync are all writing the same rows is painful.
+model ActivityLog {
+  id        Int           @id @default(autoincrement())
+  memberId  Int?
+  member    FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  /// e.g. task.complete, event.create, sync.microsoft
+  action    String
+  entity    String
+  entityId  Int?
+  detail    Json?
+  createdAt DateTime      @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+}
+
+model SyncRun {
+  id         Int       @id @default(autoincrement())
+  provider   Source
+  /// calendar | tasks
+  kind       String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  ok         Boolean?
+  itemsIn    Int       @default(0)
+  itemsOut   Int       @default(0)
+  error      String?
+
+  @@index([startedAt])
 }

@@ -324,7 +324,7 @@ function Tasks({ open, done, members, toggle }) {
               <span className="task-check" />
               <div>
                 <strong>{t.title}</strong>
-                <small>{[t.member?.name || "Unallocated", t.list].filter(Boolean).join(" · ")}</small>
+                <small>{[t.member?.name || "Unallocated", t.list?.name].filter(Boolean).join(" · ")}</small>
               </div>
               <span style={{ color: "#c3c7d0" }}>›</span>
             </button>

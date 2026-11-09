@@ -76,29 +76,79 @@ app.post("/api/logout", (_req, res) => {
 app.use("/api", requireAuth);
 
 app.get("/api/dashboard", async (_req, res) => {
-  const [members, tasks, events, chores, meals, shopping] = await Promise.all([
-    prisma.familyMember.findMany({ orderBy: { id: "asc" } }),
-    prisma.task.findMany({ include: { member: true }, orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }] }),
-    prisma.event.findMany({ include: { member: true }, orderBy: { startsAt: "asc" } }),
-    prisma.chore.findMany({ include: { member: true }, orderBy: [{ completed: "asc" }, { id: "asc" }] }),
+  const [members, calendars, taskLists, allTasks, events, meals, shopping] = await Promise.all([
+    prisma.familyMember.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
+    prisma.calendar.findMany({ include: { member: true }, orderBy: { id: "asc" } }),
+    prisma.taskList.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
+    prisma.task.findMany({
+      include: { member: true, list: true },
+      orderBy: [{ status: "asc" }, { dueAt: "asc" }, { position: "asc" }, { createdAt: "desc" }]
+    }),
+    prisma.event.findMany({
+      include: { member: true, calendar: true },
+      where: { cancelled: false },
+      orderBy: { startsAt: "asc" }
+    }),
     prisma.meal.findMany({ orderBy: [{ plannedFor: "asc" }, { name: "asc" }] }),
-    prisma.shoppingItem.findMany({ orderBy: [{ checked: "asc" }, { id: "asc" }] })
+    prisma.shoppingItem.findMany({ orderBy: [{ checked: "asc" }, { position: "asc" }, { id: "asc" }] })
   ]);
-  res.json({ members, tasks, events, chores, meals, shopping });
+
+  // Chores and routines are tasks with a different kind. The client still
+  // receives them under `chores` so the Today view need not care.
+  const tasks  = allTasks.filter((t) => t.kind === "TASK");
+  const chores = allTasks.filter((t) => t.kind !== "TASK").map((c) => ({
+    ...c, completed: c.status === "DONE", cadence: describeRecurrence(c.recurrenceRule)
+  }));
+
+  // An event whose calendar is BUSY-only is reduced before it ever leaves the
+  // server, so private detail never reaches the browser.
+  const safeEvents = events.map((e) => {
+    const vis = e.visibility === "FULL" ? (e.calendar?.defaultVisibility || "FULL") : e.visibility;
+    if (vis === "PRIVATE") return null;
+    if (vis === "BUSY") {
+      return { ...e, title: `Busy — ${e.member?.name || "Family"}`, location: null, notes: null, busy: true };
+    }
+    return e;
+  }).filter(Boolean);
+
+  res.json({ members, calendars, taskLists, tasks, chores, events: safeEvents, meals, shopping });
 });
 
+/// Turns an RRULE into something a person can read. Deliberately simple —
+/// it covers what the seed and Microsoft To Do actually produce.
+function describeRecurrence(rule) {
+  if (!rule) return null;
+  const freq = /FREQ=(\w+)/.exec(rule)?.[1];
+  const day  = /BYDAY=(\w+)/.exec(rule)?.[1];
+  const days = { SU: "Sunday", MO: "Monday", TU: "Tuesday", WE: "Wednesday", TH: "Thursday", FR: "Friday", SA: "Saturday" };
+  if (freq === "DAILY") return "repeats daily";
+  if (freq === "WEEKLY") return day ? `repeats weekly on ${days[day] || day}` : "repeats weekly";
+  if (freq === "MONTHLY") return "repeats monthly";
+  return "repeats";
+}
+
 app.post("/api/tasks", async (req, res) => {
-  const { title, notes, list = "HOME", dueAt, memberId } = req.body || {};
+  const { title, notes, listId, kind, dueAt, scheduledFor, memberId } = req.body || {};
   if (!String(title || "").trim()) return res.status(400).json({ error: "Task title is required" });
+
+  // Quick capture sends no list, so fall back to Unallocated.
+  let resolvedList = listId ? Number(listId) : null;
+  if (!resolvedList) {
+    const fallback = await prisma.taskList.findFirst({ where: { name: "Unallocated" } });
+    resolvedList = fallback?.id ?? null;
+  }
+
   const task = await prisma.task.create({
     data: {
       title: String(title).trim(),
       notes: notes ? String(notes) : null,
-      list,
+      kind: kind || "TASK",
+      listId: resolvedList,
       dueAt: dueAt ? new Date(dueAt) : null,
+      scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
       memberId: memberId ? Number(memberId) : null
     },
-    include: { member: true }
+    include: { member: true, list: true }
   });
   res.status(201).json(task);
 });
@@ -120,39 +170,59 @@ app.delete("/api/tasks/:id", async (req, res) => {
 });
 
 app.post("/api/events", async (req, res) => {
-  const { title, startsAt, endsAt, location, notes, memberId } = req.body || {};
+  const { title, startsAt, endsAt, allDay, location, notes, calendarId, memberId, visibility } = req.body || {};
   if (!title || !startsAt || !endsAt) return res.status(400).json({ error: "Title, start and end are required" });
+
+  // Every event belongs to a calendar; default to the shared family one.
+  let resolvedCal = calendarId ? Number(calendarId) : null;
+  if (!resolvedCal) {
+    const fallback = await prisma.calendar.findFirst({ where: { name: "Family" } })
+      ?? await prisma.calendar.findFirst();
+    if (!fallback) return res.status(500).json({ error: "No calendar configured" });
+    resolvedCal = fallback.id;
+  }
+
   const event = await prisma.event.create({
     data: {
+      calendarId: resolvedCal,
       title: String(title).trim(),
       startsAt: new Date(startsAt),
       endsAt: new Date(endsAt),
+      allDay: Boolean(allDay),
       location: location ? String(location) : null,
       notes: notes ? String(notes) : null,
+      visibility: visibility || "FULL",
       memberId: memberId ? Number(memberId) : null
     },
-    include: { member: true }
+    include: { member: true, calendar: true }
   });
   res.status(201).json(event);
 });
 
 app.post("/api/chores", async (req, res) => {
-  const { title, cadence, memberId } = req.body || {};
+  const { title, recurrenceRule, memberId, listId } = req.body || {};
   if (!title) return res.status(400).json({ error: "Chore title is required" });
-  const chore = await prisma.chore.create({
-    data: { title: String(title).trim(), cadence: cadence || null, memberId: memberId ? Number(memberId) : null },
+  const chore = await prisma.task.create({
+    data: {
+      title: String(title).trim(),
+      kind: "CHORE",
+      recurrenceRule: recurrenceRule || null,
+      listId: listId ? Number(listId) : null,
+      memberId: memberId ? Number(memberId) : null
+    },
     include: { member: true }
   });
   res.status(201).json(chore);
 });
 
 app.patch("/api/chores/:id", async (req, res) => {
-  const chore = await prisma.chore.update({
+  const done = Boolean(req.body.completed);
+  const chore = await prisma.task.update({
     where: { id: Number(req.params.id) },
-    data: { completed: Boolean(req.body.completed) },
+    data: { status: done ? "DONE" : "OPEN", completedAt: done ? new Date() : null },
     include: { member: true }
   });
-  res.json(chore);
+  res.json({ ...chore, completed: chore.status === "DONE" });
 });
 
 app.post("/api/meals", async (req, res) => {
