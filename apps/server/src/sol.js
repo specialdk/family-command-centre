@@ -195,6 +195,8 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
     const scheduled = tasks.filter((t) =>
       t.scheduledFor && t.scheduledFor >= from && t.scheduledFor < to);
 
+    /* Names and roles only - the database holds no gender and no pronouns,
+       so anything beyond this would be the model's own guess. */
     const who = members.map((m) => `${m.name} (${m.role.toLowerCase()})`).join(", ");
     const week = [
       ...events.map((e) => ({
@@ -246,6 +248,16 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       "  working out weekdays yourself.",
       "- Some events read only as \"Busy — <name>\". That is deliberate: it is",
       "  someone's private calendar. Report it as busy and never guess what it is.",
+      "- Never infer anyone's gender, and never use he, she, him, her, his or",
+      "  hers about a family member. A name does not tell you someone's gender,",
+      "  and getting it wrong about someone's own family is not a small error.",
+      "  Use the person's name again instead, or rewrite the sentence so no",
+      "  pronoun is needed. The same goes for mother, father, son, daughter,",
+      "  sister and brother: say parent or child, or just use the name.",
+      "- Write plain sentences. No markdown: no asterisks, no bold, no headings.",
+      "  The reply is shown as text and will later be read aloud, so a ** is a",
+      "  pair of asterisks on the screen and two spoken words.",
+      "- Listing a day is fine: one item per line, starting with the time.",
       "- Be brief. Two or three sentences. This is read on a phone, often one-handed.",
       "- Australian spelling and 24-hour-free plain times: say 7:30pm, not 19:30."
     ].join("\n");
