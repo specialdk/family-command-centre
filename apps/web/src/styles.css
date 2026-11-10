@@ -8776,3 +8776,30 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   padding: 12px; font: inherit; font-size: 15px; background: #fbfcfe;
   min-height: 110px;
 }
+
+/* Read receipts: who has actually seen a notice.
+   Colours come from each member's colorKey, the same tokens Rhian defined. */
+.notice-reads { display: flex; align-items: center; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
+.notice-read {
+  --member-color: var(--muted);
+  display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  font-size: 10px; font-weight: 900; letter-spacing: -.02em;
+  background: #fff; color: #b9bccb;
+  border: 1.5px dashed #d6d9e4;
+}
+.notice-read.seen {
+  background: var(--member-color); color: #fff;
+  border: 1.5px solid var(--member-color);
+}
+.notice-read.is-you { outline: 2px solid #e7e4fb; outline-offset: 1px; }
+.notice-read.person-rhian    { --member-color: var(--rhian); }
+.notice-read.person-danielle { --member-color: var(--danielle); }
+.notice-read.person-lachie   { --member-color: var(--lachie); }
+.notice-read.person-jack     { --member-color: var(--jack); }
+.notice-read.person-maddie   { --member-color: var(--maddie); }
+.notice-reads em {
+  font-style: normal; font-size: 12px; font-weight: 800;
+  color: #9a98b4; margin-left: 4px;
+}
+.notice-empty { color: var(--muted); font-size: 14px; margin: 12px 0 2px; }

@@ -126,24 +126,40 @@ app.get("/api/dashboard", async (_req, res) => {
 /// not fail the change that caused it.
 async function notify({ title, body = null, kind = "CHANGE", authorId = null, entity = null, entityId = null }) {
   try {
-    return await prisma.notification.create({
+    const notice = await prisma.notification.create({
       data: { title, body, kind, authorId, entity, entityId }
     });
+    // Whoever made the change does not need telling about it. Marking it read
+    // for them keeps everyone's count honest without special-casing the UI.
+    if (authorId) {
+      await prisma.notificationRead.create({
+        data: { notificationId: notice.id, memberId: authorId }
+      }).catch(() => {});
+    }
+    return notice;
   } catch (e) { console.error("notify failed:", e.message); return null; }
 }
 
+const FAMILY_TZ = process.env.FAMILY_TIMEZONE || "Australia/Adelaide";
+const whenLabel = (d, allDay) => allDay
+  ? new Intl.DateTimeFormat("en-AU", { timeZone: FAMILY_TZ, weekday: "short", day: "numeric", month: "short" }).format(d)
+  : new Intl.DateTimeFormat("en-AU", { timeZone: FAMILY_TZ, weekday: "short", hour: "numeric", minute: "2-digit" }).format(d);
+
 /// Says what actually changed about an event, in a sentence a person would
 /// write. Returns null when nothing worth telling anyone about moved.
-function describeEventChange(before, after) {
+function describeEventChange(before, after, memberName) {
   const bits = [];
-  if (before.title !== after.title) bits.push(`renamed to "${after.title}"`);
+  if (before.title !== after.title) bits.push(`is now called "${after.title}"`);
   if ((before.location || "") !== (after.location || ""))
-    bits.push(after.location ? `moved to ${after.location}` : "had its location removed");
-  if (before.startsAt.getTime() !== after.startsAt.getTime() || before.endsAt.getTime() !== after.endsAt.getTime())
-    bits.push("had its time changed");
-  if ((before.memberId || null) !== (after.memberId || null)) bits.push("was reassigned");
+    bits.push(after.location ? `moved to ${after.location}` : "no longer has a location");
+  if (before.startsAt.getTime() !== after.startsAt.getTime())
+    bits.push(`moved to ${whenLabel(after.startsAt, after.allDay)}`);
+  else if (before.endsAt.getTime() !== after.endsAt.getTime())
+    bits.push(`now finishes at ${whenLabel(after.endsAt, after.allDay)}`);
+  if ((before.memberId || null) !== (after.memberId || null))
+    bits.push(memberName ? `is now ${memberName}'s` : "is now a family event");
   if (!bits.length) return null;
-  return `${before.title} ${bits.join(", ")}`;
+  return `${before.title} ${bits.join(", and ")}`;
 }
 
 /// Turns an RRULE into something a person can read. Deliberately simple —
@@ -268,7 +284,7 @@ app.patch("/api/events/:id", async (req, res) => {
   await prisma.activityLog.create({
     data: { action: "event.update", entity: "Event", entityId: id, memberId: event.memberId }
   }).catch(() => {});
-  const what = describeEventChange(existing, event);
+  const what = describeEventChange(existing, event, event.member?.name);
   if (what) await notify({
     title: what,
     body: event.location || null,
@@ -320,8 +336,11 @@ app.post("/api/notifications", async (req, res) => {
 app.post("/api/notifications/read", async (req, res) => {
   const memberId = Number(req.body?.memberId);
   if (!memberId) return res.status(400).json({ error: "Who is reading?" });
+  // Specific ids when the client knows what was actually on screen, so a read
+  // receipt means "this was shown to them" rather than "they tapped a bell".
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : null;
   const unread = await prisma.notification.findMany({
-    where: { reads: { none: { memberId } } },
+    where: { reads: { none: { memberId } }, ...(ids ? { id: { in: ids } } : {}) },
     select: { id: true }
   });
   if (unread.length) {

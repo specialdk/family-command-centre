@@ -127,9 +127,9 @@ export default function App() {
     await api("/api/notifications", { method: "POST", body: JSON.stringify({ title, body, authorId: viewer?.id }) });
     await load();
   };
-  const markNoticesRead = async () => {
-    if (!viewer?.id || !unread.length) return;
-    await api("/api/notifications/read", { method: "POST", body: JSON.stringify({ memberId: viewer.id }) });
+  const markNoticesRead = async (ids) => {
+    if (!viewer?.id || !ids?.length) return;
+    await api("/api/notifications/read", { method: "POST", body: JSON.stringify({ memberId: viewer.id, ids }) });
     await load();
   };
 
@@ -251,7 +251,7 @@ export default function App() {
             )}
             <button
               className="round-button" title={unread.length ? `${unread.length} new` : "Nothing new"}
-              onClick={() => { setTab("today"); markNoticesRead(); }}
+              onClick={() => setTab("today")}
             >
               🔔{unread.length > 0 && <span className="notification-dot" />}
             </button>
@@ -279,7 +279,10 @@ export default function App() {
           {message && <div className="alert" style={{ marginBottom: 18 }}>{message}</div>}
 
           {tab === "today" && (
-            <Notices notices={notices} unread={unread} onCompose={() => setComposing(true)} />
+            <Notices
+              notices={notices} unread={unread} members={data.members} viewer={viewer}
+              onCompose={() => setComposing(true)} onRead={markNoticesRead}
+            />
           )}
 
           {tab === "today" && (
@@ -318,8 +321,26 @@ const sinceLabel = (iso) => {
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
 
-function Notices({ notices, unread, onCompose }) {
+function Notices({ notices, unread, members, viewer, onCompose, onRead }) {
   const isNew = (nt) => unread.some((u) => u.id === nt.id);
+
+  /* Show everything unread, topped up with recent read ones so the card is
+     never nearly empty. Capped so a long absence does not produce a wall. */
+  const shown = useMemo(() => {
+    const neu = notices.filter(isNew).slice(0, 8);
+    const old = notices.filter((nt) => !isNew(nt)).slice(0, Math.max(0, 4 - neu.length));
+    return [...neu, ...old];
+  }, [notices, unread]);
+
+  /* Marked read because they were on screen, not because a bell was tapped.
+     That is what makes the receipts below mean anything. */
+  const shownUnreadIds = shown.filter(isNew).map((nt) => nt.id).join(",");
+  useEffect(() => {
+    if (!shownUnreadIds) return;
+    const t = setTimeout(() => onRead(shownUnreadIds.split(",").map(Number)), 2500);
+    return () => clearTimeout(t);
+  }, [shownUnreadIds]);
+
   return (
     <section className="family-notifications">
       <div className="family-notification-heading">
@@ -329,21 +350,45 @@ function Notices({ notices, unread, onCompose }) {
         </div>
         <button className="family-notify-button" onClick={onCompose}>＋ Notify family</button>
       </div>
-      {notices.slice(0, 4).map((nt) => (
+      {shown.map((nt) => (
         <article key={nt.id}>
           <span className="notice-icon">{nt.kind === "FAMILY_NOTICE" ? "📣" : "🔄"}</span>
           <div>
             <strong>{nt.title}</strong>
-            <small>
-              {[nt.body, nt.author?.name, sinceLabel(nt.createdAt)].filter(Boolean).join(" · ")}
-            </small>
+            <small>{[nt.body, nt.author?.name, sinceLabel(nt.createdAt)].filter(Boolean).join(" · ")}</small>
+            <ReadBy notice={nt} members={members} viewer={viewer} />
           </div>
           {isNew(nt) && <span className="notice-new">New</span>}
         </article>
       ))}
+      {!shown.length && <p className="notice-empty">Nothing to report.</p>}
     </section>
   );
 }
+
+/// Who has actually seen this. Filled circle = seen it, faded = has not.
+function ReadBy({ notice, members, viewer }) {
+  const seen = new Set((notice.reads || []).map((r) => r.memberId));
+  const all = members.length > 0 && members.every((m) => seen.has(m.id));
+  return (
+    <span className="notice-reads" title={all ? "Everyone has seen this" : "Still to see it: " + members.filter((m) => !seen.has(m.id)).map((m) => m.name).join(", ")}>
+      {members.map((m) => (
+        <span
+          key={m.id}
+          className={`notice-read ${personColour(m)} ${seen.has(m.id) ? "seen" : ""} ${m.id === viewer?.id ? "is-you" : ""}`}
+        >
+          {m.initials}
+        </span>
+      ))}
+      <em>{all ? "all seen" : `${seen.size}/${members.length}`}</em>
+    </span>
+  );
+}
+
+const personColour = (m) => {
+  const k = String(m?.colorKey || m?.name || "").toLowerCase();
+  return ["rhian", "danielle", "lachie", "jack", "maddie"].includes(k) ? `person-${k}` : "person-family";
+};
 
 function NoticeComposer({ onCancel, onSend }) {
   const [text, setText] = useState("");
