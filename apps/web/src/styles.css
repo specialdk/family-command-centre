@@ -9033,8 +9033,16 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 
   /* The scope switch matters more on a phone than the settings cog. */
   .settings-button { display: none; }
-  .voice-button { padding: 9px 11px; font-size: 14px; }
-  .voice-button span { display: none; }
+  /* "Talk to Sol" took a whole row to itself on every page - roughly 75px of
+     a 664px phone, repeated on Today, Calendar, Tasks and the rest. Beside
+     the bell it costs nothing, and his .voice-mark already reads as "speak
+     to this". font-size:0 hides the bare text node; the mark is sized in
+     pixels, so it is untouched. */
+  .voice-button {
+    width: 40px; height: 40px; padding: 0; gap: 0; flex: none;
+    border-radius: 50%; justify-content: center; font-size: 0;
+  }
+  .voice-button .voice-mark { transform: scale(1.15); }
 
   /* .topbar-actions is a nowrap flex row in his CSS. On a 390px phone its
      five controls measured 391px inside a 362px topbar, so the document grew
@@ -9044,8 +9052,12 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
     flex-wrap: wrap; justify-content: flex-end;
     width: 100%; min-width: 0; gap: 8px;
   }
+  /* His 620px rule hides the "Viewing as" label with `.profile-picker>span`,
+     which only works now that the label is in a span. With it gone the four
+     controls fit one row instead of two - about 50px back on every page. */
   .profile-picker { min-width: 0; }
-  .profile-picker select { max-width: 112px; }
+  .profile-picker select { max-width: 96px; }
+  .topbar-actions { gap: 6px; }
 
   /* Rhian hides .view-switch entirely at 620px. We keep it, because opening
      on Day only works if Week and Month are still reachable. */

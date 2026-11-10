@@ -270,7 +270,7 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <div className="profile-picker">
-              Viewing as
+              <span>Viewing as</span>
               <select
                 value={viewer?.id ?? ""}
                 onChange={(e) => { setViewingId(e.target.value); rememberViewer(e.target.value); setScope("mine"); }}
