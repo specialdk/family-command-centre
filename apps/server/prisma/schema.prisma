@@ -74,6 +74,9 @@ model FamilyMember {
   externalAccounts ExternalAccount[]
   activity         ActivityLog[]
   shoppingAdded    ShoppingItem[]
+  noticesFor       Notification[]     @relation("NoticeFor")
+  noticesBy        Notification[]     @relation("NoticeBy")
+  noticeReads      NotificationRead[]
 }
 
 /// One per connected provider account. Tokens are encrypted at rest with
@@ -266,4 +269,48 @@ model SyncRun {
   error      String?
 
   @@index([startedAt])
+}
+
+// ------------------------------------------------------- notifications
+
+enum NoticeKind {
+  /// Written by a person: "we're eating at the Hales' tonight".
+  FAMILY_NOTICE
+  /// Generated from a change: "Rhian moved Family dinner".
+  CHANGE
+}
+
+model Notification {
+  id       Int        @id @default(autoincrement())
+  kind     NoticeKind @default(FAMILY_NOTICE)
+  title    String
+  body     String?
+  /// Who it is for. Null means the whole family, which is the usual case.
+  memberId Int?
+  member   FamilyMember? @relation("NoticeFor", fields: [memberId], references: [id], onDelete: Cascade)
+  /// Who caused it. Null for anything the system raised on its own.
+  authorId Int?
+  author   FamilyMember? @relation("NoticeBy", fields: [authorId], references: [id], onDelete: SetNull)
+  /// What it is about, so a notice can link back to the thing that changed.
+  entity   String?
+  entityId Int?
+  createdAt DateTime @default(now())
+
+  reads NotificationRead[]
+
+  @@index([createdAt])
+  @@index([memberId, createdAt])
+}
+
+/// Read state is per person, which is what lets the card say "everyone is
+/// up to date" rather than merely "nothing new for you".
+model NotificationRead {
+  id             Int          @id @default(autoincrement())
+  notificationId Int
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  memberId       Int
+  member         FamilyMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@unique([notificationId, memberId])
 }

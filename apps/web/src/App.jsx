@@ -71,6 +71,7 @@ export default function App() {
   const [tab, setTab] = useState("today");
   const [viewingId, setViewingId] = useState(recallViewer);
   const [scope, setScope] = useState("mine");   // "mine" | "everyone"
+  const [composing, setComposing] = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -109,16 +110,26 @@ export default function App() {
   const toggleChore = (c) => mutate(() => api(`/api/chores/${c.id}`, {
     method: "PATCH", body: JSON.stringify({ completed: !c.completed })
   }));
+  // actorId rides along so a notice can say who did it.
   const createEvent = async (payload) => {
-    await api("/api/events", { method: "POST", body: JSON.stringify(payload) });
+    await api("/api/events", { method: "POST", body: JSON.stringify({ ...payload, actorId: viewer?.id }) });
     await load();
   };
   const updateEvent = async (id, payload) => {
-    await api(`/api/events/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+    await api(`/api/events/${id}`, { method: "PATCH", body: JSON.stringify({ ...payload, actorId: viewer?.id }) });
     await load();
   };
   const deleteEvent = async (id) => {
-    await api(`/api/events/${id}`, { method: "DELETE" });
+    await api(`/api/events/${id}`, { method: "DELETE", body: JSON.stringify({ actorId: viewer?.id }) });
+    await load();
+  };
+  const postNotice = async (title, body) => {
+    await api("/api/notifications", { method: "POST", body: JSON.stringify({ title, body, authorId: viewer?.id }) });
+    await load();
+  };
+  const markNoticesRead = async () => {
+    if (!viewer?.id || !unread.length) return;
+    await api("/api/notifications/read", { method: "POST", body: JSON.stringify({ memberId: viewer.id }) });
     await load();
   };
 
@@ -142,6 +153,17 @@ export default function App() {
   const doneTasks = useMemo(() => (data?.tasks || []).filter((t) => t.status === "DONE" && mine(t)), [data, viewer, everyone]);
   const myChores  = useMemo(() => (data?.chores || []).filter(mine), [data, viewer, everyone]);
   const scopedEvents = useMemo(() => (data?.events || []).filter(mine), [data, viewer, everyone]);
+
+  /* A notice with no member is for the whole family. Unread is per person,
+     which is what lets the card say "everyone is up to date". */
+  const notices = useMemo(
+    () => (data?.notifications || []).filter((nt) => !nt.memberId || nt.memberId === viewer?.id),
+    [data, viewer]
+  );
+  const unread = useMemo(
+    () => notices.filter((nt) => !(nt.reads || []).some((r) => r.memberId === viewer?.id)),
+    [notices, viewer]
+  );
   const upcoming  = useMemo(() =>
     scopedEvents.filter((e) => new Date(e.endsAt) >= new Date())
       .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)), [scopedEvents]);
@@ -227,6 +249,12 @@ export default function App() {
                 <button className={scope === "everyone" ? "selected" : ""} onClick={() => setScope("everyone")}>Everyone</button>
               </div>
             )}
+            <button
+              className="round-button" title={unread.length ? `${unread.length} new` : "Nothing new"}
+              onClick={() => { setTab("today"); markNoticesRead(); }}
+            >
+              🔔{unread.length > 0 && <span className="notification-dot" />}
+            </button>
             <button className="round-button settings-button" title="Settings">⚙</button>
             <button className="voice-button" onClick={() => setMessage("Sol is not connected yet.")}>
               <span className="voice-mark"><i /><i /><i /><i /></span>
@@ -251,6 +279,10 @@ export default function App() {
           {message && <div className="alert" style={{ marginBottom: 18 }}>{message}</div>}
 
           {tab === "today" && (
+            <Notices notices={notices} unread={unread} onCompose={() => setComposing(true)} />
+          )}
+
+          {tab === "today" && (
             <Today
               viewing={viewer} members={data.members} upcoming={upcoming}
               openTasks={openTasks} chores={myChores}
@@ -270,6 +302,80 @@ export default function App() {
           {!current.ready && <Placeholder item={current} />}
         </div>
       </div>
+
+      {composing && <NoticeComposer onCancel={() => setComposing(false)} onSend={postNotice} />}
+    </div>
+  );
+}
+
+const sinceLabel = (iso) => {
+  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.round(hrs / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+};
+
+function Notices({ notices, unread, onCompose }) {
+  const isNew = (nt) => unread.some((u) => u.id === nt.id);
+  return (
+    <section className="family-notifications">
+      <div className="family-notification-heading">
+        <div>
+          <p className="eyebrow">FAMILY NOTIFICATIONS</p>
+          <h2>{unread.length ? `${unread.length} new` : "Everyone is up to date"}</h2>
+        </div>
+        <button className="family-notify-button" onClick={onCompose}>＋ Notify family</button>
+      </div>
+      {notices.slice(0, 4).map((nt) => (
+        <article key={nt.id}>
+          <span className="notice-icon">{nt.kind === "FAMILY_NOTICE" ? "📣" : "🔄"}</span>
+          <div>
+            <strong>{nt.title}</strong>
+            <small>
+              {[nt.body, nt.author?.name, sinceLabel(nt.createdAt)].filter(Boolean).join(" · ")}
+            </small>
+          </div>
+          {isNew(nt) && <span className="notice-new">New</span>}
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function NoticeComposer({ onCancel, onSend }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const send = async (e) => {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t) return setError("Say something first.");
+    setBusy(true); setError("");
+    // First line is the headline, the rest is detail.
+    const [first, ...rest] = t.split("\n");
+    try { await onSend(first.trim(), rest.join("\n").trim() || null); onCancel(); }
+    catch (err) { setError(err.message); setBusy(false); }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="notification-sheet" onClick={(e) => e.stopPropagation()} onSubmit={send}>
+        <p className="eyebrow">NOTIFY FAMILY</p>
+        <h2>Tell everyone</h2>
+        <textarea
+          rows={4} autoFocus value={text} onChange={(e) => setText(e.target.value)}
+          placeholder="e.g. Dinner is at the Hales' tonight, straight after basketball"
+        />
+        {error && <div className="alert">{error}</div>}
+        <div className="sheet-actions">
+          <button type="button" className="chip-button" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="calendar-add-item" disabled={busy}>{busy ? "Sending…" : "Send to family"}</button>
+        </div>
+      </form>
     </div>
   );
 }

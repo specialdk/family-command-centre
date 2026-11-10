@@ -76,7 +76,7 @@ app.post("/api/logout", (_req, res) => {
 app.use("/api", requireAuth);
 
 app.get("/api/dashboard", async (_req, res) => {
-  const [members, calendars, taskLists, allTasks, events, meals, shopping] = await Promise.all([
+  const [members, calendars, taskLists, allTasks, events, meals, shopping, notifications] = await Promise.all([
     prisma.familyMember.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
     prisma.calendar.findMany({ include: { member: true }, orderBy: { id: "asc" } }),
     prisma.taskList.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
@@ -90,7 +90,15 @@ app.get("/api/dashboard", async (_req, res) => {
       orderBy: { startsAt: "asc" }
     }),
     prisma.meal.findMany({ orderBy: [{ plannedFor: "asc" }, { name: "asc" }] }),
-    prisma.shoppingItem.findMany({ orderBy: [{ checked: "asc" }, { position: "asc" }, { id: "asc" }] })
+    prisma.shoppingItem.findMany({ orderBy: [{ checked: "asc" }, { position: "asc" }, { id: "asc" }] }),
+    // Read state comes down with each notice so the client can work out what
+    // is unread for whoever is being viewed as. There is no server-side
+    // identity yet; this moves server-side when sign-in lands.
+    prisma.notification.findMany({
+      include: { author: true, reads: { select: { memberId: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 50
+    })
   ]);
 
   // Chores and routines are tasks with a different kind. The client still
@@ -111,8 +119,32 @@ app.get("/api/dashboard", async (_req, res) => {
     return e;
   }).filter(Boolean);
 
-  res.json({ members, calendars, taskLists, tasks, chores, events: safeEvents, meals, shopping });
+  res.json({ members, calendars, taskLists, tasks, chores, events: safeEvents, meals, shopping, notifications });
 });
+
+/// Records a notice for the family. Never throws: a failure to notify must
+/// not fail the change that caused it.
+async function notify({ title, body = null, kind = "CHANGE", authorId = null, entity = null, entityId = null }) {
+  try {
+    return await prisma.notification.create({
+      data: { title, body, kind, authorId, entity, entityId }
+    });
+  } catch (e) { console.error("notify failed:", e.message); return null; }
+}
+
+/// Says what actually changed about an event, in a sentence a person would
+/// write. Returns null when nothing worth telling anyone about moved.
+function describeEventChange(before, after) {
+  const bits = [];
+  if (before.title !== after.title) bits.push(`renamed to "${after.title}"`);
+  if ((before.location || "") !== (after.location || ""))
+    bits.push(after.location ? `moved to ${after.location}` : "had its location removed");
+  if (before.startsAt.getTime() !== after.startsAt.getTime() || before.endsAt.getTime() !== after.endsAt.getTime())
+    bits.push("had its time changed");
+  if ((before.memberId || null) !== (after.memberId || null)) bits.push("was reassigned");
+  if (!bits.length) return null;
+  return `${before.title} ${bits.join(", ")}`;
+}
 
 /// Turns an RRULE into something a person can read. Deliberately simple —
 /// it covers what the seed and Microsoft To Do actually produce.
@@ -196,6 +228,12 @@ app.post("/api/events", async (req, res) => {
     },
     include: { member: true, calendar: true }
   });
+  await notify({
+    title: `${event.title} was added to the calendar`,
+    body: [event.member?.name, event.location].filter(Boolean).join(" · ") || null,
+    authorId: req.body?.actorId ? Number(req.body.actorId) : null,
+    entity: "Event", entityId: event.id
+  });
   res.status(201).json(event);
 });
 
@@ -230,6 +268,13 @@ app.patch("/api/events/:id", async (req, res) => {
   await prisma.activityLog.create({
     data: { action: "event.update", entity: "Event", entityId: id, memberId: event.memberId }
   }).catch(() => {});
+  const what = describeEventChange(existing, event);
+  if (what) await notify({
+    title: what,
+    body: event.location || null,
+    authorId: req.body?.actorId ? Number(req.body.actorId) : null,
+    entity: "Event", entityId: id
+  });
   res.json(event);
 });
 
@@ -248,7 +293,44 @@ app.delete("/api/events/:id", async (req, res) => {
   await prisma.activityLog.create({
     data: { action: "event.delete", entity: "Event", entityId: id, detail: { title: existing.title } }
   }).catch(() => {});
+  await notify({
+    title: `${existing.title} was removed from the calendar`,
+    authorId: req.body?.actorId ? Number(req.body.actorId) : null,
+    entity: "Event", entityId: id
+  });
   res.json({ ok: true });
+});
+
+app.post("/api/notifications", async (req, res) => {
+  const { title, body, authorId } = req.body || {};
+  if (!String(title || "").trim()) return res.status(400).json({ error: "Say something" });
+  const notice = await prisma.notification.create({
+    data: {
+      kind: "FAMILY_NOTICE",
+      title: String(title).trim(),
+      body: body ? String(body).trim() : null,
+      authorId: authorId ? Number(authorId) : null
+    },
+    include: { author: true, reads: { select: { memberId: true } } }
+  });
+  res.status(201).json(notice);
+});
+
+/// Marks everything currently visible as read for one person.
+app.post("/api/notifications/read", async (req, res) => {
+  const memberId = Number(req.body?.memberId);
+  if (!memberId) return res.status(400).json({ error: "Who is reading?" });
+  const unread = await prisma.notification.findMany({
+    where: { reads: { none: { memberId } } },
+    select: { id: true }
+  });
+  if (unread.length) {
+    await prisma.notificationRead.createMany({
+      data: unread.map((n) => ({ notificationId: n.id, memberId })),
+      skipDuplicates: true
+    });
+  }
+  res.json({ ok: true, marked: unread.length });
 });
 
 app.post("/api/chores", async (req, res) => {

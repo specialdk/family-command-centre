@@ -8751,3 +8751,28 @@ input[type=date],input[type=time] {
 .sheet-confirm { margin-right: auto; align-self: center; font-size: 14px; font-weight: 800; color: #8d4b48; }
 /* Week cards are buttons now, so reset the button chrome. */
 button.calendar-card { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid; cursor: pointer; font: inherit; }
+
+/* ---------- Family notifications ----------
+   .family-notifications, .family-notification-heading, .family-notify-button,
+   .notification-dot and .notification-sheet are Rhian's. His card carries its
+   own 34px side margin, which double-counts inside our padded page body. */
+.page-body .family-notifications { margin: 0 0 18px; }
+.notice-icon {
+  display: grid; place-items: center;
+  width: 34px; height: 34px; border-radius: 11px;
+  background: #f3f2fd; font-size: 17px;
+}
+.family-notifications article strong { font-size: 15px; display: block; }
+.family-notifications article small { display: block; margin-top: 3px; color: #8b89a6; font-size: 13px; }
+.notice-new {
+  background: #efeafe; color: #5b4bc4;
+  border-radius: 20px; padding: 4px 10px;
+  font-size: 12px; font-weight: 900; white-space: nowrap;
+}
+.round-button .notification-dot { top: 6px; right: 6px; }
+.notification-sheet { display: grid; gap: 14px; }
+.notification-sheet textarea {
+  border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px; font: inherit; font-size: 15px; background: #fbfcfe;
+  min-height: 110px;
+}
