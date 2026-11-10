@@ -225,7 +225,8 @@ function WeekView({ cursor, onDay, onAdd, onPick }) {
             {onDay(d).map((e) => (
               <div key={e.id} className={`calendar-card ${personClass(e.member)}`}>
                 <span className="event-time">{e.allDay ? "All day" : hhmm(new Date(e.startsAt))}</span>
-                <strong>{e.title}</strong>
+                {/* h3, not strong: Rhian styled .calendar-card h3 as the title block. */}
+                <h3>{e.title}</h3>
                 {(e.member || e.location) && (
                   <span className="event-owner">{[e.member?.name, e.location].filter(Boolean).join(" · ")}</span>
                 )}
