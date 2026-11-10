@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { canListen, canSpeak, listen, primeSpeech, speak, stopSpeaking } from "./voice.js";
 
 /* Sol's sheet, built to the design already in Rhian's stylesheet rather than
    invented: .assistant-sheet, the 76px .listen-orb with its listening pulse,
@@ -36,25 +37,57 @@ export default function Sol({ viewer, onClose, onChanged }) {
   const [applying, setApplying] = useState(false);
   const [done, setDone]         = useState("");
   const [error, setError]       = useState("");
+  const [hearing, setHearing]   = useState(false);
+  const [heard, setHeard]       = useState("");
+  const [mute, setMute]         = useState(false);
   const inputRef = useRef(null);
+  const stopRef  = useRef(null);
+  /* Whether the question came by voice. A spoken question gets a spoken
+     answer; a typed one does not, because nobody wants a phone talking at
+     them because they typed in a quiet room. */
+  const spokenRef = useRef(false);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  /* Typing is the fallback, so the keyboard should not leap up on a phone
+     where the orb is the point. */
+  useEffect(() => { if (!canListen) inputRef.current?.focus(); }, []);
 
-  const ask = async (text) => {
+  /* Leaving mid-sentence stops the voice with you. */
+  useEffect(() => () => { stopRef.current?.(); stopSpeaking(); }, []);
+
+  const ask = async (text, { spoken = false } = {}) => {
     const message = String(text || "").trim();
     if (!message || busy) return;
-    setBusy(true); setError(""); setDone(""); setProposal(null); setAsked(message);
+    stopSpeaking();
+    spokenRef.current = spoken;
+    setBusy(true); setError(""); setDone(""); setProposal(null); setAsked(message); setHeard("");
     try {
       const data = await api("/api/sol", { message, history });
       setReply(data.reply || "");
       setProposal(data.proposal || null);
       setHistory(data.history || []);
+      /* A proposal is not read out. It is a thing to look at and approve,
+         and hearing "shall I send this to everyone" is not consent. */
+      if (spoken && !mute && !data.proposal) speak(data.reply);
     } catch (e) {
       setError(e.message);
       setReply("");
     } finally {
       setBusy(false);
     }
+  };
+
+  const toggleListening = () => {
+    if (hearing) { stopRef.current?.(); return; }
+    if (busy) return;
+    primeSpeech();            // must happen inside the tap, for Safari
+    stopSpeaking();
+    setError(""); setHeard(""); setHearing(true);
+    stopRef.current = listen({
+      onInterim: setHeard,
+      onResult: (said) => { setAsked(said); ask(said, { spoken: true }); },
+      onEnd: () => { setHearing(false); stopRef.current = null; },
+      onError: (msg) => { if (msg) setError(msg); }
+    });
   };
 
   const apply = async () => {
@@ -81,26 +114,53 @@ export default function Sol({ viewer, onClose, onChanged }) {
       <div className="assistant-sheet" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
 
-        {/* The orb is Rhian's, and it is honest about not listening yet: voice
-            is speech-to-text on top of this, not part of it. */}
+        {/* Rhian's orb, with his own listening pulse. It only offers itself
+            where the browser can actually hear - a button that does nothing
+            is worse than no button. */}
         <button
-          className="listen-orb"
-          disabled
-          title="Talking to Sol is coming — type for now"
+          className={`listen-orb ${hearing ? "listening" : ""}`}
+          onClick={toggleListening}
+          disabled={!canListen || busy}
+          title={!canListen ? "This browser can't listen — type instead"
+                : hearing ? "Stop listening" : "Tap and ask"}
+          aria-pressed={hearing}
         >
           <span className="voice-mark"><i /><i /><i /><i /></span>
         </button>
-        <p className="listen-button" style={{ pointerEvents: "none" }}>
-          Type for now — talking comes next
-        </p>
+
+        {canListen ? (
+          <button type="button" className="listen-button" onClick={toggleListening} disabled={busy}>
+            {hearing ? "Listening — tap to stop" : "Tap the circle and ask"}
+          </button>
+        ) : (
+          <p className="listen-button" style={{ pointerEvents: "none" }}>
+            This browser can't listen — type instead
+          </p>
+        )}
+
+        {canSpeak && canListen && (
+          <button
+            type="button"
+            className="listen-button"
+            style={{ display: "block", margin: "2px auto 0", fontSize: 12, opacity: .75 }}
+            onClick={() => { setMute((m) => !m); stopSpeaking(); }}
+          >
+            {mute ? "Answers are silent — tap to hear them" : "Answers are read aloud — tap to silence"}
+          </button>
+        )}
 
         <h2>Sol</h2>
 
         <div className="assistant-reply">
-          {busy ? "Thinking…"
+          {/* `done` outranks `reply`: once something has been applied, the
+              confirmation is the news, not the draft that preceded it. Asking
+              again clears it. */}
+          {hearing && heard ? heard
+            : hearing ? "Listening…"
+            : busy ? "Thinking…"
             : error ? error
-            : reply ? reply
             : done ? done
+            : reply ? reply
             : `Ask me what's on, or what still needs doing${viewer?.name ? `, ${viewer.name}` : ""}.`}
         </div>
 
