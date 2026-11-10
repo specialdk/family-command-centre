@@ -4,12 +4,44 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 // Dates are relative to the run, so a freshly seeded database always looks
-// like "this week" rather than August 2026.
+// like "this week" rather than whenever the seed was written.
+//
+// The seed runs on Railway, where the server clock is UTC, but the family
+// lives in Adelaide. Using setHours() here would record the server's idea of
+// "6:30pm", which renders ten and a half hours out in an Adelaide browser.
+// So wall-clock times are resolved against the family's zone explicitly.
 const DAY = 86400000;
+const FAMILY_TZ = process.env.FAMILY_TIMEZONE || "Australia/Adelaide";
+
+/// How far `tz` is from UTC at a given instant, in ms. Handles daylight saving,
+/// which Adelaide observes, so a hardcoded +10:30 would be wrong half the year.
+function zoneOffsetMs(instant, tz) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }).formatToParts(instant).reduce((a, p) => (a[p.type] = p.value, a), {});
+  const asUtc = Date.UTC(
+    parts.year, parts.month - 1, parts.day,
+    parts.hour === "24" ? 0 : Number(parts.hour), parts.minute, parts.second
+  );
+  return asUtc - instant.getTime();
+}
+
+/// `days` from today, at `hour`:`min` as a clock on the wall in Adelaide.
 const at = (days, hour, min = 0) => {
-  const d = new Date(Date.now() + days * DAY);
-  d.setHours(hour, min, 0, 0);
-  return d;
+  const target = new Date(Date.now() + days * DAY);
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: FAMILY_TZ, year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(target).split("-").map(Number);
+
+  // Resolve twice: the offset itself depends on the instant we land on, which
+  // matters on the two days a year the clocks move.
+  let utc = Date.UTC(y, m - 1, d, hour, min);
+  for (let i = 0; i < 2; i++) {
+    utc = Date.UTC(y, m - 1, d, hour, min) - zoneOffsetMs(new Date(utc), FAMILY_TZ);
+  }
+  return new Date(utc);
 };
 
 const PEOPLE = [
@@ -58,20 +90,20 @@ async function main() {
     await prisma.event.createMany({
       data: [
         { calendarId: cal.Family, memberId: by.Lachie, title: "Lachie's match",
-          location: "Glenunga Oval", startsAt: at(0, 10, 30), endsAt: at(0, 12) },
+          location: "Glenunga Oval", timeZone: FAMILY_TZ, startsAt: at(0, 10, 30), endsAt: at(0, 12) },
         { calendarId: cal.Family, memberId: null, title: "Family dinner",
-          location: "Home", startsAt: at(0, 18, 30), endsAt: at(0, 20) },
+          location: "Home", timeZone: FAMILY_TZ, startsAt: at(0, 18, 30), endsAt: at(0, 20) },
         { calendarId: cal["Rhian · Work"], memberId: by.Rhian, title: "Client review",
-          startsAt: at(1, 9), endsAt: at(1, 10, 30), visibility: "BUSY" },
+          timeZone: FAMILY_TZ, startsAt: at(1, 9), endsAt: at(1, 10, 30), visibility: "BUSY" },
         { calendarId: cal.Danielle, memberId: by.Maddie, title: "Dentist — Maddie",
-          location: "Burnside", startsAt: at(1, 14), endsAt: at(1, 15) },
+          location: "Burnside", timeZone: FAMILY_TZ, startsAt: at(1, 14), endsAt: at(1, 15) },
         { calendarId: cal.Family, memberId: by.Jack, title: "Jack — learner driver practice",
-          startsAt: at(2, 16), endsAt: at(2, 17) },
+          timeZone: FAMILY_TZ, startsAt: at(2, 16), endsAt: at(2, 17) },
         { calendarId: cal.Family, memberId: null, title: "School term break begins",
-          startsAt: at(5, 0), endsAt: at(5, 23, 59), allDay: true },
+          timeZone: FAMILY_TZ, startsAt: at(5, 0), endsAt: at(5, 23, 59), allDay: true },
         // A weekly series. The RRULE is stored; instances expand at read time.
         { calendarId: cal.Family, memberId: by.Danielle, title: "Netball training",
-          location: "Burnside Stadium", startsAt: at(3, 17), endsAt: at(3, 18, 30),
+          location: "Burnside Stadium", timeZone: FAMILY_TZ, startsAt: at(3, 17), endsAt: at(3, 18, 30),
           recurrenceRule: "FREQ=WEEKLY;BYDAY=TU" }
       ]
     });
