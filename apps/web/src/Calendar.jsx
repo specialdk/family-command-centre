@@ -8,6 +8,8 @@ import { DAY_CODES, shortDay, parseRRule, buildRRule, describeRRule, expandEvent
 const DAY = 86400000;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const KNOWN = ["rhian", "danielle", "lachie", "jack", "maddie"];
+/* Waking to bedtime - the hours a family actually schedules into. */
+const PLACE_HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
 
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const addDays    = (d, n) => new Date(startOfDay(d).getTime() + n * DAY);
@@ -354,6 +356,34 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
     if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, firstAt - 40);
   }, [+cursor, firstAt]);
 
+  /* A column per person needs about 190px each; a phone fits one and a half.
+     So on a phone the day is read as a list instead - the person is their
+     colour and their initials rather than a column you have to swipe to. */
+  const [phone, setPhone] = useState(() => {
+    try { return window.matchMedia("(max-width: 700px)").matches; } catch { return false; }
+  });
+  useEffect(() => {
+    try {
+      const mq = window.matchMedia("(max-width: 700px)");
+      const on = (e) => setPhone(e.matches);
+      mq.addEventListener("change", on);
+      return () => mq.removeEventListener("change", on);
+    } catch { return undefined; }
+  }, []);
+
+  /* The rail sits under the day, so picking a task leaves the times off the
+     top of the screen. Bring them to the eye rather than ask for a scroll. */
+  const placeRef = useRef(null);
+  useEffect(() => {
+    if (phone && carrying && placeRef.current) {
+      placeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [phone, carrying]);
+
+  /* All-day things first, then in clock order. */
+  const agenda = [...forDay].sort((a, b) =>
+    (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || new Date(a.startsAt) - new Date(b.startsAt));
+
   // One pixel is one minute; snap to the nearest quarter hour.
   const minutesAt = (ev) =>
     Math.max(0, Math.min(23 * 60, Math.round(ev.nativeEvent.offsetY / 15) * 15));
@@ -378,8 +408,10 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
         </div>
         <p className="panel-intro">
           {carrying
-            ? `Now click a time in ${""}someone's day to place "${carrying.title}".`
-            : "Drag one onto a person's day, or click it then click a time."}
+            ? (phone ? `Now pick a time above to place "${carrying.title}".`
+                     : `Now click a time in someone's day to place "${carrying.title}".`)
+            : phone ? "Tap one, then tap a time."
+                    : "Drag one onto a person's day, or click it then click a time."}
         </p>
         <div className="day-task-list">
           {unscheduled.map((t) => (
@@ -404,6 +436,56 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
         </div>
       </aside>
 
+    {phone ? (
+    <div className="day-schedule-shell day-agenda-shell">
+      {carrying && (
+        <div className="agenda-place" ref={placeRef}>
+          <strong>Place &ldquo;{carrying.title}&rdquo;</strong>
+          <div className="agenda-times">
+            {PLACE_HOURS.map((h) => (
+              <button key={h} onClick={() => onPlace(cursor, h * 60, carrying.memberId ?? carrying.member?.id ?? null)}>
+                {h === 12 ? "12 pm" : h < 12 ? `${h} am` : `${h - 12} pm`}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="chip-button" onClick={() => setCarrying(null)}>Cancel</button>
+        </div>
+      )}
+      <ol className="day-agenda">
+        {agenda.map((e) => {
+          const s = new Date(e.startsAt), t = new Date(e.endsAt);
+          return (
+            <li
+              key={e.id}
+              className={`agenda-row ${personClass(e.member)} ${e.isTask ? "is-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
+              onClick={() => onOpen(e)}
+            >
+              <span className="agenda-time">{e.allDay ? "All day" : hhmm(s)}</span>
+              <span className="agenda-bar" />
+              <div className="agenda-body">
+                <strong>{e.title}</strong>
+                <small>
+                  {[e.isTask ? (e.status === "DONE" ? "Done" : "To do")
+                             : e.allDay ? null : `until ${hhmm(t)}`,
+                    e.location, e.member?.name || "Family"].filter(Boolean).join(" \u00b7 ")}
+                </small>
+              </div>
+              <span className="agenda-who">{e.member?.initials || "ALL"}</span>
+            </li>
+          );
+        })}
+        {!agenda.length && (
+          <li className="agenda-empty">
+            Nothing on today.
+            <button type="button" className="chip-button" onClick={() => onAdd(cursor, 9 * 60, null)}>Add something</button>
+          </li>
+        )}
+      </ol>
+      <div className="day-schedule-tip">
+        {carrying ? <strong>Pick a time above</strong> : "Tap anything to open it"}
+      </div>
+    </div>
+    ) : (
     <div className="day-schedule-shell">
       <div className="day-schedule-scroll" ref={scrollRef}>
         <div
@@ -466,6 +548,7 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
           : "Click an empty slot to add something · times snap to 15 minutes"}
       </div>
     </div>
+    )}
     </div>
   );
 }

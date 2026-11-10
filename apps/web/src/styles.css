@@ -8906,13 +8906,65 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   line-height: 1.25;
 }
 
+/* ---------- The day as a list (phones) ----------
+   Only rendered when the viewport is a phone, so these need no media query.
+   The member's colour arrives as `color` from his .person-<name> rules, which
+   is why the stripe and the initials can just use currentColor. */
+
+.day-agenda-shell { padding: 4px 0 0; }
+.day-agenda { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.agenda-row {
+  display: grid;
+  grid-template-columns: 58px 4px minmax(0, 1fr) auto;
+  align-items: center; gap: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 13px;
+  padding: 10px 12px 10px 10px; cursor: pointer;
+}
+.agenda-row:active { background: #f7f9fe; }
+.agenda-time { font-size: 13px; font-weight: 900; color: #6c7488; text-align: right; }
+.agenda-bar { align-self: stretch; min-height: 30px; border-radius: 3px; background: currentColor; }
+.agenda-body { min-width: 0; }
+.agenda-body strong {
+  display: block; color: var(--ink); font-size: 15px; font-weight: 800; line-height: 1.25;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agenda-body small {
+  display: block; margin-top: 2px; color: var(--muted); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agenda-who {
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  border: 1px solid currentColor; font-size: 10px; font-weight: 900; letter-spacing: .02em;
+}
+.agenda-row.is-task .agenda-bar { background: repeating-linear-gradient(135deg, currentColor 0 4px, #fff 4px 8px); }
+.agenda-row.is-done .agenda-body strong { text-decoration: line-through; color: var(--muted); }
+.agenda-empty {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  color: var(--muted); font-size: 14px;
+  background: #fff; border: 1px dashed var(--line); border-radius: 13px; padding: 16px 14px;
+}
+
+/* Tap the task, then tap an hour. Dragging is a mouse gesture; this is the
+   same two steps without one. */
+.agenda-place {
+  background: #fffaf0; border: 1px solid #f0e2c4; border-radius: 13px;
+  padding: 12px; margin-bottom: 10px;
+}
+.agenda-place > strong { display: block; font-size: 14px; color: var(--ink); }
+.agenda-times { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.agenda-times button {
+  border: 1px solid var(--line); background: #fff; cursor: pointer;
+  border-radius: 9px; padding: 7px 9px; font-size: 13px; font-weight: 800; color: #4a5468;
+}
+.agenda-times button:active { background: var(--navy); color: #fff; border-color: var(--navy); }
+
 /* ---------- Phones ----------
    Rhian's own CSS already turns .nav-rail into a fixed 64px bottom bar at
    980px and hides the button labels. What it did not have was a way to reach
    twelve items with a thumb, so four stay on the bar and the rest move behind
    "More". His .page-pad bottom padding is restated for our .page-body. */
 
-.nav-more { display: none; }
+.nav-rail nav .nav-more { display: none; }
 
 @media (max-width: 980px) {
   .nav-rail nav button.nav-secondary { display: none; }
@@ -8947,7 +8999,7 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   .nav-rail .brand-mark, .nav-rail > .avatar-button { display: none; }
   .nav-rail nav { flex: 1 1 auto; min-width: 0; }
 
-  .nav-more {
+  .nav-rail nav .nav-more {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     border: 0; border-radius: 18px; background: 0 0; color: #ffffffbf; cursor: pointer;
   }
