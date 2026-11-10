@@ -1,5 +1,6 @@
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { reduceEvents, WITH_VISIBILITY } from "./visibility.js";
 
 /* Sol — the family's assistant.
 
@@ -175,10 +176,10 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       prisma.familyMember.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
       prisma.event.findMany({
         where: { cancelled: false, startsAt: { gte: from, lt: to } },
-        include: { member: true },
+        include: WITH_VISIBILITY,
         orderBy: { startsAt: "asc" },
         take: 40
-      }),
+      }).then(reduceEvents),
       prisma.task.findMany({
         where: { status: "OPEN" },
         include: { member: true },
@@ -243,6 +244,8 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       "  date into a time something is happening.",
       "- Every date above is written out. Use the dates as given rather than",
       "  working out weekdays yourself.",
+      "- Some events read only as \"Busy — <name>\". That is deliberate: it is",
+      "  someone's private calendar. Report it as busy and never guess what it is.",
       "- Be brief. Two or three sentences. This is read on a phone, often one-handed.",
       "- Australian spelling and 24-hour-free plain times: say 7:30pm, not 19:30."
     ].join("\n");
@@ -254,15 +257,15 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       if (input.member && !member) return `There is nobody called ${input.member} in this family.`;
       const from = zonedToUtc(input.from, "00:00", familyTz);
       const to = new Date(zonedToUtc(input.to, "00:00", familyTz).getTime() + 86400000);
-      const events = await prisma.event.findMany({
+      const events = reduceEvents(await prisma.event.findMany({
         where: {
           cancelled: false, startsAt: { gte: from, lt: to },
           ...(member ? { memberId: member.id } : {})
         },
-        include: { member: true },
+        include: WITH_VISIBILITY,
         orderBy: { startsAt: "asc" },
         take: 60
-      });
+      }));
       if (!events.length) return "Nothing on in that period.";
       return events.map((e) =>
         `${stamp(e.startsAt, e.allDay)} — ${e.title}` +

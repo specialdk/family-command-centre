@@ -7,6 +7,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { PrismaClient } from "@prisma/client";
 import { createSolRouter } from "./sol.js";
+import { reduceEvents } from "./visibility.js";
 
 const prisma = new PrismaClient();
 const app = express();
@@ -109,16 +110,10 @@ app.get("/api/dashboard", async (_req, res) => {
     ...c, completed: c.status === "DONE", cadence: describeRecurrence(c.recurrenceRule)
   }));
 
-  // An event whose calendar is BUSY-only is reduced before it ever leaves the
-  // server, so private detail never reaches the browser.
-  const safeEvents = events.map((e) => {
-    const vis = e.visibility === "FULL" ? (e.calendar?.defaultVisibility || "FULL") : e.visibility;
-    if (vis === "PRIVATE") return null;
-    if (vis === "BUSY") {
-      return { ...e, title: `Busy — ${e.member?.name || "Family"}`, location: null, notes: null, busy: true };
-    }
-    return e;
-  }).filter(Boolean);
+  // Reduced before it ever leaves the server, so private detail never reaches
+  // the browser. The rule lives in visibility.js because Sol needs the same
+  // one - a second copy here is how the two drift and one of them leaks.
+  const safeEvents = reduceEvents(events);
 
   res.json({ members, calendars, taskLists, tasks, chores, events: safeEvents, meals, shopping, notifications });
 });
