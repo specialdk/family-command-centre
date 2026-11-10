@@ -9142,6 +9142,15 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .notification-sheet > .more-grid button.active {
   border-color: var(--navy); color: var(--navy); background: #f4f3ff;
 }
+/* `.proposal-card button` (0,1,1) beats `.chip-button`, so declining a
+   proposal looked exactly as emphatic as sending it to four people. The
+   quiet option should look quiet. */
+.proposal-card .sheet-actions .chip-button {
+  background: #fff; color: #4a5468; border: 1px solid #ddcfb7;
+  border-radius: 10px; font-size: 14px; font-weight: 800;
+}
+.proposal-card .sheet-actions { justify-content: flex-start; }
+
 .notification-sheet > .sheet-actions .chip-button {
   background: #fff; color: #4a5468; border: 1px solid var(--line);
   border-radius: 10px; font-size: 14px; font-weight: 800;

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Calendar from "./Calendar.jsx";
+import Sol from "./Sol.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -74,6 +75,7 @@ export default function App() {
   const [composing, setComposing] = useState(false);
   const [history, setHistory]     = useState(null);   // null = closed
   const [moreOpen, setMoreOpen]   = useState(false);
+  const [solOpen, setSolOpen]     = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -291,7 +293,7 @@ export default function App() {
               🔔{unread.length > 0 && <span className="notification-dot" />}
             </button>
             <button className="round-button settings-button" title="Settings">⚙</button>
-            <button className="voice-button" onClick={() => setMessage("Sol is not connected yet.")}>
+            <button className="voice-button" onClick={() => setSolOpen(true)} title="Talk to Sol">
               <span className="voice-mark"><i /><i /><i /><i /></span>
               Talk to Sol
             </button>
@@ -349,6 +351,13 @@ export default function App() {
           onPick={(k) => { setTab(k); setMoreOpen(false); }}
           onCancel={() => setMoreOpen(false)}
           onSignOut={logout}
+        />
+      )}
+      {solOpen && (
+        <Sol
+          viewer={viewer}
+          onClose={() => setSolOpen(false)}
+          onChanged={load}
         />
       )}
       {composing && <NoticeComposer onCancel={() => setComposing(false)} onSend={postNotice} />}

@@ -6,6 +6,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { PrismaClient } from "@prisma/client";
+import { createSolRouter } from "./sol.js";
 
 const prisma = new PrismaClient();
 const app = express();
@@ -174,6 +175,8 @@ function describeRecurrence(rule) {
   if (freq === "MONTHLY") return "repeats monthly";
   return "repeats";
 }
+
+app.use("/api/sol", createSolRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ }));
 
 app.post("/api/tasks", async (req, res) => {
   const { title, notes, listId, kind, dueAt, scheduledFor, memberId } = req.body || {};
