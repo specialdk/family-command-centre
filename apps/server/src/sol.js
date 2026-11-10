@@ -139,6 +139,23 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
 
   const firstName = (s) => String(s || "").trim().split(/\s+/)[0]?.toLowerCase() || "";
 
+  /* Always a full date, never a bare weekday. The app's own whenLabel says
+     "Tue 7:30 pm", which is right for a person looking at this week's screen
+     but wrong for a model: it then has to work out which Tuesday, and that
+     is exactly how a Friday task gets reported as due tomorrow. */
+  const stamp = (d, allDay) => new Intl.DateTimeFormat("en-AU", {
+    timeZone: familyTz, weekday: "short", day: "numeric", month: "short",
+    ...(allDay ? {} : { hour: "numeric", minute: "2-digit" })
+  }).format(d);
+
+  /* due and scheduled are different things and the family treats them that
+     way - "do it Saturday morning" is not "due Saturday". Say which is which
+     every time, so Sol never has to guess. */
+  const taskWhen = (t) => [
+    t.scheduledFor ? `on the calendar ${stamp(t.scheduledFor, false)}` : null,
+    t.dueAt ? `due ${stamp(t.dueAt, true)}` : null
+  ].filter(Boolean).join(", ") || "no time yet";
+
   async function findMember(name) {
     if (!name) return null;
     const all = await prisma.familyMember.findMany();
@@ -170,17 +187,32 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       })
     ]);
 
+    /* A task with a scheduledFor is drawn on the calendar as a TO DO block,
+       so it is part of the week whether or not it is also due then. Leaving
+       them out of the diary was why Sol answered about due dates when it was
+       asked what was on. */
+    const scheduled = tasks.filter((t) =>
+      t.scheduledFor && t.scheduledFor >= from && t.scheduledFor < to);
+
     const who = members.map((m) => `${m.name} (${m.role.toLowerCase()})`).join(", ");
-    const diary = events.length
-      ? events.map((e) =>
-          `- ${whenLabel(e.startsAt, e.allDay)} ${e.title}` +
-          `${e.member ? ` (${e.member.name})` : " (family)"}${e.location ? ` at ${e.location}` : ""}`
-        ).join("\n")
-      : "- nothing on";
+    const week = [
+      ...events.map((e) => ({
+        at: e.startsAt,
+        line: `- ${stamp(e.startsAt, e.allDay)} — ${e.title}` +
+              `${e.member ? ` (${e.member.name})` : " (family)"}` +
+              `${e.location ? ` at ${e.location}` : ""}`
+      })),
+      ...scheduled.map((t) => ({
+        at: t.scheduledFor,
+        line: `- ${stamp(t.scheduledFor, false)} — ${t.title} [to do]` +
+              `${t.member ? ` (${t.member.name})` : " (unallocated)"}`
+      }))
+    ].sort((a, b) => a.at - b.at);
+
+    const diary = week.length ? week.map((w) => w.line).join("\n") : "- nothing on";
     const todo = tasks.length
       ? tasks.map((t) =>
-          `- ${t.title}${t.member ? ` (${t.member.name})` : " (unallocated)"}` +
-          `${t.dueAt ? ` due ${whenLabel(t.dueAt, true)}` : ""}`
+          `- ${t.title}${t.member ? ` (${t.member.name})` : " (unallocated)"} — ${taskWhen(t)}`
         ).join("\n")
       : "- nothing open";
 
@@ -206,6 +238,11 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       "  notify_family propose a change for a person to approve. When you use one,",
       "  say plainly what you have drafted and that it needs their go-ahead.",
       "- Never claim something has been added, scheduled or sent. It has not been.",
+      "- \"Due\" and \"on the calendar\" are different. A task can be scheduled for",
+      "  Friday and due Wednesday. Say which one you mean, and never turn a due",
+      "  date into a time something is happening.",
+      "- Every date above is written out. Use the dates as given rather than",
+      "  working out weekdays yourself.",
       "- Be brief. Two or three sentences. This is read on a phone, often one-handed.",
       "- Australian spelling and 24-hour-free plain times: say 7:30pm, not 19:30."
     ].join("\n");
@@ -228,7 +265,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       });
       if (!events.length) return "Nothing on in that period.";
       return events.map((e) =>
-        `${whenLabel(e.startsAt, e.allDay)} — ${e.title}` +
+        `${stamp(e.startsAt, e.allDay)} — ${e.title}` +
         `${e.member ? ` (${e.member.name})` : " (family)"}${e.location ? ` at ${e.location}` : ""}`
       ).join("\n");
     }
@@ -246,8 +283,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       if (!tasks.length) return "No tasks match that.";
       return tasks.map((t) =>
         `${t.status === "DONE" ? "[done] " : ""}${t.title}` +
-        `${t.member ? ` (${t.member.name})` : " (unallocated)"}` +
-        `${t.dueAt ? ` due ${whenLabel(t.dueAt, true)}` : ""}`
+        `${t.member ? ` (${t.member.name})` : " (unallocated)"} — ${taskWhen(t)}`
       ).join("\n");
     }
 
