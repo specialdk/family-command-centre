@@ -6,12 +6,12 @@ const NAV = [
   { key: "today",       emoji: "🏠",        label: "Today",       ready: true, today: true },
   { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true },
   { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true },
-  { key: "family",      emoji: "👨‍👩‍👧‍👦", label: "Family",      ready: true },
+  { key: "family",      emoji: "👨‍👩‍👧‍👦", label: "Family",      ready: true, parentOnly: true },
   { key: "recipes",     emoji: "🍲",        label: "Recipes",     ready: true },
   { key: "ideas",       emoji: "💡",        label: "Ideas" },
-  { key: "inputs",      emoji: "📥",        label: "Inputs" },
-  { key: "finances",    emoji: "💰",        label: "Finances" },
-  { key: "investments", emoji: "📈",        label: "Investments" },
+  { key: "inputs",      emoji: "📥",        label: "Inputs",      parentOnly: true },
+  { key: "finances",    emoji: "💰",        label: "Finances",    parentOnly: true },
+  { key: "investments", emoji: "📈",        label: "Investments", parentOnly: true },
   { key: "shopping",    emoji: "🛒",        label: "Shopping",    ready: true },
   { key: "how",         emoji: "?",         label: "How do I" },
   { key: "uploads",     emoji: "＋",        label: "Uploads" }
@@ -25,6 +25,13 @@ const PLACEHOLDER = {
   how:         "Short answers to the household questions nobody can ever remember the answer to.",
   uploads:     "A single place to add anything — a photo of a recipe, a receipt, a school note."
 };
+
+/* Who you last looked at the app as. A convenience, not a credential —
+   it is a view, not a permission boundary. Real per-person auth arrives
+   with Microsoft sign-in. */
+const VIEWER_KEY = "fcc.viewer";
+const rememberViewer = (id) => { try { localStorage.setItem(VIEWER_KEY, String(id)); } catch {} };
+const recallViewer = () => { try { return localStorage.getItem(VIEWER_KEY) || ""; } catch { return ""; } };
 
 const api = async (url, options = {}) => {
   const res = await fetch(url, {
@@ -61,7 +68,8 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("today");
-  const [viewingId, setViewingId] = useState("");
+  const [viewingId, setViewingId] = useState(recallViewer);
+  const [scope, setScope] = useState("mine");   // "mine" | "everyone"
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -104,11 +112,31 @@ export default function App() {
     method: "PATCH", body: JSON.stringify({ checked: !i.checked })
   }));
 
-  const openTasks = useMemo(() => data?.tasks?.filter((t) => t.status === "OPEN") || [], [data]);
-  const doneTasks = useMemo(() => data?.tasks?.filter((t) => t.status === "DONE") || [], [data]);
+  const viewer = useMemo(
+    () => data?.members?.find((m) => String(m.id) === String(viewingId)) || data?.members?.[0],
+    [data, viewingId]
+  );
+  const isParent = viewer?.role === "PARENT";
+  // Children always see their own view; only a parent may widen it.
+  const everyone = isParent && scope === "everyone";
+
+  /* Unassigned items belong to the whole household, so they stay visible to
+     everyone — that is what makes the Unallocated queue work. */
+  const mine = (x) => everyone || !x.memberId || x.memberId === viewer?.id;
+
+  const openTasks = useMemo(() => (data?.tasks || []).filter((t) => t.status === "OPEN" && mine(t)), [data, viewer, everyone]);
+  const doneTasks = useMemo(() => (data?.tasks || []).filter((t) => t.status === "DONE" && mine(t)), [data, viewer, everyone]);
+  const myChores  = useMemo(() => (data?.chores || []).filter(mine), [data, viewer, everyone]);
   const upcoming  = useMemo(() =>
-    (data?.events || []).filter((e) => new Date(e.endsAt) >= new Date())
-      .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)), [data]);
+    (data?.events || []).filter((e) => new Date(e.endsAt) >= new Date() && mine(e))
+      .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)), [data, viewer, everyone]);
+
+  // Switching to a child while on a parent-only tab must not strand them there.
+  useEffect(() => {
+    if (!viewer) return;
+    const t = NAV.find((n) => n.key === tab);
+    if (t?.parentOnly && viewer.role !== "PARENT") setTab("today");
+  }, [viewer, tab]);
 
   if (session === null) return <div className="splash">Opening Family Command Centre…</div>;
 
@@ -132,9 +160,9 @@ export default function App() {
 
   if (!data) return <div className="splash">Loading family dashboard…</div>;
 
-  const current  = NAV.find((n) => n.key === tab) || NAV[0];
-  const viewing  = data.members.find((m) => String(m.id) === String(viewingId)) || data.members[0];
-  const parents  = data.members.filter((m) => m.role === "Parent").slice(0, 2);
+  const nav      = NAV.filter((item) => isParent || !item.parentOnly);
+  const current  = nav.find((n) => n.key === tab) || nav[0];
+  const parents  = data.members.filter((m) => m.role === "PARENT").slice(0, 2);
 
   return (
     <div className="app-shell">
@@ -142,7 +170,7 @@ export default function App() {
         <div className="brand-mark"><span style={{ fontSize: 26 }}>🏡</span></div>
         <nav>
           <div className="sortable-nav">
-            {NAV.map((item) => (
+            {nav.map((item) => (
               <button
                 key={item.key}
                 className={[item.today ? "today-nav" : "", tab === item.key ? "active" : ""].filter(Boolean).join(" ")}
@@ -158,7 +186,7 @@ export default function App() {
           </div>
         </nav>
         <button className="avatar-button" onClick={logout} title="Sign out">
-          {viewing?.initials || "—"}
+          {viewer?.initials || "—"}
         </button>
       </aside>
 
@@ -171,10 +199,19 @@ export default function App() {
           <div className="topbar-actions">
             <div className="profile-picker">
               Viewing as
-              <select value={viewingId} onChange={(e) => setViewingId(e.target.value)}>
+              <select
+                value={viewer?.id ?? ""}
+                onChange={(e) => { setViewingId(e.target.value); rememberViewer(e.target.value); setScope("mine"); }}
+              >
                 {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
+            {isParent && (
+              <div className="view-switch">
+                <button className={scope === "mine" ? "selected" : ""} onClick={() => setScope("mine")}>Just me</button>
+                <button className={scope === "everyone" ? "selected" : ""} onClick={() => setScope("everyone")}>Everyone</button>
+              </div>
+            )}
             <button className="round-button settings-button" title="Settings">⚙</button>
             <button className="voice-button" onClick={() => setMessage("Sol is not connected yet.")}>
               <span className="voice-mark"><i /><i /><i /><i /></span>
@@ -189,7 +226,10 @@ export default function App() {
         <div className="status-strip">
           <span className={saving ? "status-pulse saving" : "status-pulse"} />
           {openTasks.length} open {openTasks.length === 1 ? "task" : "tasks"} · {upcoming.length} upcoming
-          <span className="status-meta">Family view · {saving ? "Saving…" : "Saved"}</span>
+          <span className="status-meta">
+            {everyone ? "Whole family" : `${viewer?.name || "Personal"}'s view`}
+            {isParent ? " · parent" : ""} · {saving ? "Saving…" : "Saved"}
+          </span>
         </div>
 
         <div className="page-body">
@@ -197,8 +237,8 @@ export default function App() {
 
           {tab === "today" && (
             <Today
-              viewing={viewing} members={data.members} upcoming={upcoming}
-              openTasks={openTasks} chores={data.chores}
+              viewing={viewer} members={data.members} upcoming={upcoming}
+              openTasks={openTasks} chores={myChores}
               toggleTask={toggleTask} toggleChore={toggleChore} onSeeAll={() => setTab("calendar")}
             />
           )}
