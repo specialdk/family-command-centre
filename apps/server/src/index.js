@@ -203,12 +203,40 @@ app.post("/api/tasks", async (req, res) => {
 
 app.patch("/api/tasks/:id", async (req, res) => {
   const id = Number(req.params.id);
+  const b = req.body || {};
   const data = {};
-  if ("status" in req.body) data.status = req.body.status;
-  if ("memberId" in req.body) data.memberId = req.body.memberId ? Number(req.body.memberId) : null;
-  if ("title" in req.body) data.title = String(req.body.title).trim();
-  if ("dueAt" in req.body) data.dueAt = req.body.dueAt ? new Date(req.body.dueAt) : null;
-  const task = await prisma.task.update({ where: { id }, data, include: { member: true } });
+  if ("status" in b) {
+    data.status = b.status;
+    data.completedAt = b.status === "DONE" ? new Date() : null;
+  }
+  if ("memberId" in b)     data.memberId = b.memberId ? Number(b.memberId) : null;
+  if ("title" in b)        data.title = String(b.title).trim();
+  if ("notes" in b)        data.notes = b.notes ? String(b.notes) : null;
+  if ("listId" in b)       data.listId = b.listId ? Number(b.listId) : null;
+  if ("dueAt" in b)        data.dueAt = b.dueAt ? new Date(b.dueAt) : null;
+  // When it is being done, as opposed to when it is due.
+  if ("scheduledFor" in b) data.scheduledFor = b.scheduledFor ? new Date(b.scheduledFor) : null;
+  if ("durationMins" in b) data.durationMins = b.durationMins ? Number(b.durationMins) : null;
+  if ("needsHelp" in b)    data.needsHelp = Boolean(b.needsHelp);
+
+  const before = await prisma.task.findUnique({ where: { id } });
+  if (!before) return res.status(404).json({ error: "No such task" });
+  const task = await prisma.task.update({ where: { id }, data, include: { member: true, list: true } });
+
+  await prisma.activityLog.create({
+    data: { action: "task.update", entity: "Task", entityId: id, memberId: task.memberId }
+  }).catch(() => {});
+
+  // Scheduling something for someone is worth telling the family about;
+  // ticking a task off is not.
+  if ("scheduledFor" in b && task.scheduledFor && String(before.scheduledFor) !== String(task.scheduledFor)) {
+    await notify({
+      title: `${task.title} is scheduled for ${whenLabel(task.scheduledFor, false)}`,
+      body: task.member?.name || null,
+      authorId: b.actorId ? Number(b.actorId) : null,
+      entity: "Task", entityId: id
+    });
+  }
   res.json(task);
 });
 

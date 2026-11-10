@@ -129,6 +129,16 @@ export default function App() {
     try { setHistory(await api("/api/notifications?limit=200")); }
     catch (e) { setMessage(e.message); setHistory(null); }
   };
+  /* Scheduling from the rail: when it happens, and whose it is, in one go. */
+  const scheduleTask = async (task, whenISO, memberId) => {
+    const url = `/api/tasks/${task.id}`;
+    await api(url, {
+      method: "PATCH",
+      body: JSON.stringify({ scheduledFor: whenISO, memberId: memberId ?? task.memberId ?? null, actorId: viewer?.id })
+    });
+    await load();
+  };
+
   const postNotice = async (title, body) => {
     await api("/api/notifications", { method: "POST", body: JSON.stringify({ title, body, authorId: viewer?.id }) });
     await load();
@@ -308,6 +318,7 @@ export default function App() {
               events={scopedEvents} tasks={scheduled} members={data.members} calendars={data.calendars || []}
               viewer={viewer} onCreate={createEvent} onUpdate={updateEvent} onDelete={deleteEvent}
               onToggleTask={(t) => (t.kind && t.kind !== "TASK") ? toggleChore(t) : toggleTask(t)}
+              onSchedule={scheduleTask}
             />
           )}
           {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} />}

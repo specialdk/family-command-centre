@@ -8867,3 +8867,32 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 /* Ticked off: still visible, clearly done. */
 .is-done { opacity: .62; }
 .is-done h3, .is-done strong, .is-done .truncate { text-decoration: line-through; }
+
+/* ---------- Ready to schedule rail ----------
+   .day-task-panel, .day-task-list, .day-task-drag and .drag-grip are Rhian's.
+   His .day-task-drag is a four-column grid: grip, text, meta, spare. */
+.day-with-tasks {
+  display: grid;
+  grid-template-columns: minmax(250px, 290px) minmax(0, 1fr);
+  border: 1px solid #dbe6f4; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 12px 35px #414d7e14; background: #fff;
+}
+.day-with-tasks .day-schedule-shell { border: 0; border-radius: 0; box-shadow: none; width: auto; }
+.day-task-panel .panel-heading { align-items: center; }
+.day-task-drag strong { display: block; font-size: 14px; line-height: 1.25; }
+.day-task-drag small { display: block; margin-top: 3px; color: #7b8395; font-size: 12px; }
+.day-task-drag .task-when { font-size: 12px; font-weight: 800; color: #8e95a8; white-space: nowrap; }
+.day-task-drag.is-dragging { opacity: .55; outline: 2px solid var(--navy); outline-offset: 2px; }
+.day-task-panel .empty-capture { color: #8e95a8; font-size: 13px; padding: 14px 2px; }
+/* While carrying something, the columns invite a drop. */
+.day-person-column.is-target { cursor: copy; box-shadow: inset 0 0 0 2px #cfe0ff; }
+.rail-hint { margin: 14px 2px 0; font-size: 13px; color: var(--muted); }
+
+@media (max-width: 1000px) {
+  .day-with-tasks { grid-template-columns: 1fr; }
+  .day-task-panel { border-right: 0; border-bottom: 1px solid #d7e8f5; }
+}
+/* His rule centres the row; with a wrapping title the grip drifts to the middle. */
+.day-task-drag { align-items: start; }
+.day-task-drag .drag-grip { padding-top: 2px; }
+.day-task-drag .task-when { padding-top: 2px; }

@@ -31,12 +31,15 @@ function monthMatrix(cursor) {
   return Array.from({ length: 42 }, (_, i) => addDays(start, i));
 }
 
-export default function Calendar({ events, tasks = [], members, calendars, viewer, onCreate, onUpdate, onDelete, onToggleTask }) {
+export default function Calendar({ events, tasks = [], members, calendars, viewer, onCreate, onUpdate, onDelete, onToggleTask, onSchedule }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [view, setView]     = useState("week");
   const [hidden, setHidden] = useState(() => new Set());
   const [draft, setDraft]   = useState(null);
   const [notice, setNotice] = useState("");
+  /* The task picked up from the rail: dragged on a desktop, or tapped then
+     tapped again on a phone, where dragging is miserable. */
+  const [carrying, setCarrying] = useState(null);
 
   const keyOf   = (e) => e.memberId ?? "family";
 
@@ -57,6 +60,11 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
         endsAt: new Date(s.getTime() + (t.durationMins || 30) * 60000).toISOString()
       };
     }), [tasks]);
+
+  const unscheduled = useMemo(
+    () => tasks.filter((t) => !t.scheduledFor && t.status !== "DONE"),
+    [tasks]
+  );
 
   const occurrences = useMemo(
     () => expandEvents([...events, ...taskItems], addDays(cursor, -45), addDays(cursor, 75)),
@@ -88,6 +96,15 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
       ? visible.filter((e) => { const d = new Date(e.startsAt); return d >= startOfWeek(cursor) && d < addDays(startOfWeek(cursor), 7); }).length
       : visible.filter((e) => new Date(e.startsAt).getMonth() === cursor.getMonth()).length;
   const subtitle = `${inView} ${inView === 1 ? "thing" : "things"} · ${hidden.size ? `${members.length + 1 - hidden.size} of ${members.length + 1} shown` : "everyone shown"}`;
+
+  /* Dropping onto a person's column schedules it AND hands it to them -
+     "drag it onto someone's day" is one gesture, not two. */
+  const place = async (date, startMin, memberId) => {
+    const task = carrying;
+    setCarrying(null);
+    const when = new Date(startOfDay(date).getTime() + startMin * 60000);
+    await onSchedule(task, when.toISOString(), memberId);
+  };
 
   const openDraft = (date, startMin = 9 * 60, memberId = viewer?.id ?? null) =>
     setDraft({ date: startOfDay(date), startMin, endMin: startMin + 60, memberId, title: "", location: "",
@@ -173,7 +190,19 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
                                         onPick={(d) => { setCursor(d); setView("day"); }} onAdd={openDraft} />}
         {view === "week"  && <WeekView  cursor={cursor} onDay={onDay} onAdd={openDraft} onOpen={openEdit}
                                         onPick={(d) => { setCursor(d); setView("day"); }} />}
-        {view === "day"   && <DayView   cursor={cursor} columns={columns} events={visible} onAdd={openDraft} onOpen={openEdit} />}
+        {view === "day"   && (
+          <DayView
+            cursor={cursor} columns={columns} events={visible}
+            onAdd={openDraft} onOpen={openEdit}
+            unscheduled={unscheduled} carrying={carrying} setCarrying={setCarrying} onPlace={place}
+          />
+        )}
+        {view !== "day" && unscheduled.length > 0 && (
+          <p className="rail-hint">
+            {unscheduled.length} {unscheduled.length === 1 ? "task has" : "tasks have"} no time yet —
+            {" "}<button className="notice-history-link" onClick={() => setView("day")}>schedule them in Day view</button>
+          </p>
+        )}
       </section>
 
       {notice && <div className="alert calendar-notice" onClick={() => setNotice("")}>{notice}</div>}
@@ -305,17 +334,60 @@ function WeekView({ cursor, onDay, onAdd, onPick, onOpen }) {
 
 /* --------------------------------------------------------------- day view */
 
-function DayView({ cursor, columns, events, onAdd, onOpen }) {
+function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying, setCarrying, onPlace }) {
   const forDay = events.filter((e) => sameDay(new Date(e.startsAt), cursor));
   const hours = Array.from({ length: 24 }, (_, h) => h);
 
+  // One pixel is one minute; snap to the nearest quarter hour.
+  const minutesAt = (ev) =>
+    Math.max(0, Math.min(23 * 60, Math.round(ev.nativeEvent.offsetY / 15) * 15));
+
   const click = (ev, memberId) => {
-    // One pixel is one minute; snap to the nearest quarter hour.
-    const y = ev.nativeEvent.offsetY;
-    onAdd(cursor, Math.max(0, Math.min(23 * 60, Math.round(y / 15) * 15)), memberId);
+    if (carrying) return onPlace(cursor, minutesAt(ev), memberId);
+    onAdd(cursor, minutesAt(ev), memberId);
+  };
+
+  const drop = (ev, memberId) => {
+    ev.preventDefault();
+    if (!carrying) return;
+    onPlace(cursor, minutesAt(ev), memberId);
   };
 
   return (
+    <div className="day-with-tasks">
+      <aside className="day-task-panel">
+        <div className="panel-heading">
+          <h2>Ready to schedule</h2>
+          <span className="count-badge">{unscheduled.length}</span>
+        </div>
+        <p className="panel-intro">
+          {carrying
+            ? `Now click a time in ${""}someone's day to place "${carrying.title}".`
+            : "Drag one onto a person's day, or click it then click a time."}
+        </p>
+        <div className="day-task-list">
+          {unscheduled.map((t) => (
+            <div
+              key={`${t.kind}-${t.id}`}
+              className={`day-task-drag ${personClass(t.member)} ${carrying?.id === t.id ? "is-dragging" : ""}`}
+              draggable
+              onDragStart={() => setCarrying(t)}
+              onDragEnd={() => setCarrying(null)}
+              onClick={() => setCarrying(carrying?.id === t.id ? null : t)}
+              title="Drag onto a day, or click then click a time"
+            >
+              <i className="drag-grip">⋮⋮</i>
+              <div>
+                <strong>{t.title}</strong>
+                <small>{t.member?.name || "Unallocated"}{t.list?.name ? ` · ${t.list.name}` : ""}</small>
+              </div>
+              <span className="task-when">{t.dueAt ? `due ${fmt(new Date(t.dueAt), { day: "numeric", month: "short" })}` : ""}</span>
+            </div>
+          ))}
+          {!unscheduled.length && <p className="empty-capture">Everything has a time.</p>}
+        </div>
+      </aside>
+
     <div className="day-schedule-shell">
       <div className="day-schedule-scroll">
         <div
@@ -341,9 +413,11 @@ function DayView({ cursor, columns, events, onAdd, onOpen }) {
           {columns.map((m, i) => (
             <div
               key={m?.id ?? `famcol${i}`}
-              className="day-person-column"
+              className={`day-person-column ${carrying ? "is-target" : ""}`}
               onClick={(ev) => click(ev, m?.id ?? null)}
-              title="Click to add something here"
+              onDragOver={(ev) => ev.preventDefault()}
+              onDrop={(ev) => drop(ev, m?.id ?? null)}
+              title={carrying ? `Place "${carrying.title}" here` : "Click to add something here"}
             >
               {forDay.filter((e) => (e.memberId ?? null) === (m?.id ?? null)).map((e) => {
                 const s = new Date(e.startsAt), t = new Date(e.endsAt);
@@ -367,7 +441,12 @@ function DayView({ cursor, columns, events, onAdd, onOpen }) {
           ))}
         </div>
       </div>
-      <div className="day-schedule-tip">Click an empty slot to add something · times snap to 15 minutes</div>
+      <div className="day-schedule-tip">
+        {carrying
+          ? <strong>Click a time to place “{carrying.title}”</strong>
+          : "Click an empty slot to add something · times snap to 15 minutes"}
+      </div>
+    </div>
     </div>
   );
 }
