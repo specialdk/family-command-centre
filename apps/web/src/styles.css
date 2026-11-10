@@ -8823,3 +8823,26 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .history-sheet .timeline time { font-size: 12px; color: #8b91a5; }
 .history-sheet .timeline strong { font-size: 14px; }
 .history-sheet .timeline small { display: block; margin-top: 3px; color: #9196a1; font-size: 12px; }
+
+/* Recurrence editor. Rhian's .event-recurrence-editor and .recurring-day-picks
+   were styled for a dark panel; restated here for the white event sheet. */
+.event-recurrence-editor .recurrence-top { display: grid; gap: 6px; font-size: 13px; font-weight: 800; color: var(--muted); }
+.event-recurrence-editor select, .event-recurrence-editor input {
+  min-height: 42px; border: 1px solid var(--line); border-radius: 10px;
+  padding: 0 11px; font-size: 15px; background: #fff; color: var(--ink);
+}
+.event-recurrence-editor .recurring-day-picks { margin-top: 11px; }
+.event-recurrence-editor .recurring-day-picks span {
+  border: 1px solid #d6dbe8; color: #6c7488 !important;
+  font-size: 13px; font-weight: 800; background: #fff;
+}
+.event-recurrence-editor .recurring-day-picks input:checked + span {
+  background: var(--navy); border-color: var(--navy); color: #fff !important;
+}
+.event-recurrence-fields label { display: grid; gap: 6px; font-size: 13px; font-weight: 800; color: var(--muted); }
+.event-recurrence-fields label small { font-weight: 600; color: #a8adbb; }
+.recurrence-summary { margin: 11px 0 0; font-size: 13px; font-weight: 750; color: #5b61a0; }
+.sheet-note {
+  margin: 0; font-size: 13px; color: #8a6d3b;
+  background: #fff8e9; border: 1px solid #ecd6a8; border-radius: 10px; padding: 9px 11px;
+}

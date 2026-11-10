@@ -240,6 +240,7 @@ app.post("/api/events", async (req, res) => {
       location: location ? String(location) : null,
       notes: notes ? String(notes) : null,
       visibility: visibility || "FULL",
+      recurrenceRule: req.body?.recurrenceRule || null,
       memberId: memberId ? Number(memberId) : null
     },
     include: { member: true, calendar: true }
@@ -276,6 +277,7 @@ app.patch("/api/events/:id", async (req, res) => {
   if (b.allDay !== undefined)     data.allDay = Boolean(b.allDay);
   if (b.memberId !== undefined)   data.memberId = b.memberId ? Number(b.memberId) : null;
   if (b.calendarId !== undefined) data.calendarId = Number(b.calendarId);
+  if (b.recurrenceRule !== undefined) data.recurrenceRule = b.recurrenceRule || null;
 
   if (data.startsAt && data.endsAt && data.endsAt <= data.startsAt)
     return res.status(400).json({ error: "It has to finish after it starts" });

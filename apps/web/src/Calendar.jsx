@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { DAY_CODES, shortDay, parseRRule, buildRRule, describeRRule, expandEvents } from "./rrule.js";
 
 /* The calendar, built to Rhian's own stylesheet. The geometry comes from
    his CSS: .day-schedule-grid is 1440px tall over 24 hours, so one pixel
@@ -38,7 +39,15 @@ export default function Calendar({ events, members, calendars, viewer, onCreate,
   const [notice, setNotice] = useState("");
 
   const keyOf   = (e) => e.memberId ?? "family";
-  const visible = useMemo(() => events.filter((e) => !hidden.has(keyOf(e))), [events, hidden]);
+
+  /* A repeating event is one row with a rule; the views need the actual
+     occurrences. Expanded over a window wide enough for any view, so paging
+     a week or a month needs no refetch. */
+  const occurrences = useMemo(
+    () => expandEvents(events, addDays(cursor, -45), addDays(cursor, 75)),
+    [events, cursor]
+  );
+  const visible = useMemo(() => occurrences.filter((e) => !hidden.has(keyOf(e))), [occurrences, hidden]);
   const onDay   = (d) => visible.filter((e) => sameDay(new Date(e.startsAt), d))
                                 .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
 
@@ -66,19 +75,29 @@ export default function Calendar({ events, members, calendars, viewer, onCreate,
   const subtitle = `${inView} ${inView === 1 ? "thing" : "things"} · ${hidden.size ? `${members.length + 1 - hidden.size} of ${members.length + 1} shown` : "everyone shown"}`;
 
   const openDraft = (date, startMin = 9 * 60, memberId = viewer?.id ?? null) =>
-    setDraft({ date: startOfDay(date), startMin, endMin: startMin + 60, memberId, title: "", location: "", allDay: false });
+    setDraft({ date: startOfDay(date), startMin, endMin: startMin + 60, memberId, title: "", location: "",
+               allDay: false, recurrenceRule: null, isSeries: false });
 
   /* Opening an existing one. An event that reached the browser reduced to
      "Busy" never carried its real title, so editing it here would overwrite
      that title with the placeholder. Refuse, and say why. */
   const openEdit = (e) => {
     if (e.busy) return setNotice(`"${e.title}" is on a private calendar — it can only be changed where it lives.`);
-    const s = new Date(e.startsAt), t = new Date(e.endsAt);
-    const end = sameDay(s, t) ? minutesInto(t) : 24 * 60 - 1;
     setNotice("");
+    /* A repeating event is one row. Editing any occurrence edits the series,
+       so the sheet works from the series' own date and times - otherwise
+       saving from next Tuesday would quietly move the whole series there.
+       Changing one occurrence alone is a separate job; the schema's
+       recurrenceParentId and originalStartsAt exist for it. */
+    const isSeries = Boolean(e.recurrenceRule);
+    const s = new Date(isSeries ? (e.seriesStartsAt ?? e.startsAt) : e.startsAt);
+    const t = new Date(isSeries ? (e.seriesEndsAt ?? e.endsAt) : e.endsAt);
+    const end = sameDay(s, t) ? minutesInto(t) : 24 * 60 - 1;
     setDraft({
-      id: e.id, date: startOfDay(s), startMin: minutesInto(s), endMin: end,
-      memberId: e.memberId ?? null, title: e.title, location: e.location || "", allDay: !!e.allDay
+      id: e.seriesId ?? e.id,
+      date: startOfDay(s), startMin: minutesInto(s), endMin: end,
+      memberId: e.memberId ?? null, title: e.title, location: e.location || "",
+      allDay: !!e.allDay, recurrenceRule: e.recurrenceRule || null, isSeries
     });
   };
 
@@ -329,6 +348,63 @@ function DayView({ cursor, columns, events, onAdd, onOpen }) {
 
 /* ------------------------------------------------------------ add an event */
 
+/* Rhian styled .event-recurrence-editor and .recurring-day-picks for a dark
+   panel; the colours are re-stated in our CSS for this white sheet. */
+function Recurrence({ draft, set }) {
+  const rule = parseRRule(draft.recurrenceRule);
+  const change = (patch) => {
+    const next = { ...rule, ...patch };
+    // Picking Weekly with no days chosen defaults to the day it already falls on.
+    if (next.freq === "WEEKLY" && !next.byday.length) next.byday = [DAY_CODES[draft.date.getDay()]];
+    if (next.freq !== "WEEKLY") next.byday = [];
+    set({ recurrenceRule: buildRRule(next) });
+  };
+  const toggleDay = (code) => {
+    const has = rule.byday.includes(code);
+    const byday = has ? rule.byday.filter((d) => d !== code) : [...rule.byday, code];
+    // Never leave a weekly rule with no days; that would repeat nothing.
+    change({ byday: byday.length ? DAY_CODES.filter((d) => byday.includes(d)) : rule.byday });
+  };
+
+  return (
+    <div className="event-recurrence-editor">
+      <label className="recurrence-top">Repeats
+        <select value={rule.freq} onChange={(e) => change({ freq: e.target.value })}>
+          <option value="">Does not repeat</option>
+          <option value="DAILY">Daily</option>
+          <option value="WEEKLY">Weekly</option>
+          <option value="MONTHLY">Monthly</option>
+        </select>
+      </label>
+
+      {rule.freq && (
+        <>
+          {rule.freq === "WEEKLY" && (
+            <div className="recurring-day-picks">
+              {DAY_CODES.map((code) => (
+                <label key={code}>
+                  <input type="checkbox" checked={rule.byday.includes(code)} onChange={() => toggleDay(code)} />
+                  <span>{shortDay(code)}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="event-recurrence-fields">
+            <label>Every
+              <input type="number" min="1" max="52" value={rule.interval}
+                     onChange={(e) => change({ interval: Math.max(1, Number(e.target.value) || 1) })} />
+            </label>
+            <label>Until <small>(optional)</small>
+              <input type="date" value={rule.until} onChange={(e) => change({ until: e.target.value })} />
+            </label>
+          </div>
+          <p className="recurrence-summary">{describeRRule(draft.recurrenceRule)}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 const toTime = (mins) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 const fromTime = (s) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
 
@@ -353,6 +429,7 @@ function EventSheet({ draft, setDraft, members, calendars, onCancel, onCreate, o
       memberId: draft.memberId || null,
       calendarId: cal?.id,
       allDay: draft.allDay,
+      recurrenceRule: draft.recurrenceRule,
       startsAt: draft.allDay ? at(0) : at(draft.startMin),
       endsAt:   draft.allDay ? at(23 * 60 + 59) : at(draft.endMin)
     };
@@ -406,12 +483,22 @@ function EventSheet({ draft, setDraft, members, calendars, onCancel, onCreate, o
           </label>
         </div>
 
+        <Recurrence draft={draft} set={set} />
+
+        {draft.isSeries && (
+          <p className="sheet-note">
+            This repeats. Changes apply to every occurrence — changing one date on its own is not possible yet.
+          </p>
+        )}
+
         {error && <div className="alert">{error}</div>}
 
         <div className="sheet-actions">
           {editing && (confirming ? (
             <>
-              <span className="sheet-confirm">Delete it for everyone?</span>
+              <span className="sheet-confirm">
+                {draft.isSeries ? "Delete every occurrence, for everyone?" : "Delete it for everyone?"}
+              </span>
               <button type="button" className="chip-button" onClick={() => setConfirming(false)}>Keep it</button>
               <button type="button" className="danger-button" onClick={remove} disabled={busy}>Yes, delete</button>
             </>
