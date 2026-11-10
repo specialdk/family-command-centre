@@ -338,7 +338,17 @@ export default function App() {
             />
           )}
           {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} />}
-          {tab === "family"   && <Family members={data.members} tasks={data.tasks} />}
+          {tab === "family"   && (
+          <Family
+            members={data.members} tasks={data.tasks}
+            onSaveSound={async (id, pronunciation) => {
+              await api(`/api/members/${id}`, {
+                method: "PATCH", body: JSON.stringify({ pronunciation })
+              });
+              await load();
+            }}
+          />
+        )}
           {tab === "recipes"  && <Recipes meals={data.meals} />}
           {tab === "shopping" && <Shopping items={data.shopping} toggle={toggleShopping} />}
           {!current.ready && <Placeholder item={current} />}
@@ -356,6 +366,7 @@ export default function App() {
       {solOpen && (
         <Sol
           viewer={viewer}
+          members={data.members}
           onClose={() => setSolOpen(false)}
           onChanged={load}
         />
@@ -654,7 +665,7 @@ function Tasks({ open, done, members, toggle }) {
   );
 }
 
-function Family({ members, tasks }) {
+function Family({ members, tasks, onSaveSound }) {
   return (
     <div className="today-grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))" }}>
       {members.map((m) => {
@@ -669,10 +680,49 @@ function Family({ members, tasks }) {
             <p style={{ marginTop: 14, fontWeight: 800 }}>
               {mine} open task{mine === 1 ? "" : "s"}
             </p>
+            <SaysName member={m} onSave={onSaveSound} />
           </section>
         );
       })}
     </div>
+  );
+}
+
+/* Spelling a name the way it sounds is the only way to make an English
+   speech engine say it right - Rhian is "Ryan", Danielle is "Dan-eel". It
+   is used when Sol speaks and nowhere else; the screen always shows the
+   real name. */
+function SaysName({ member, onSave }) {
+  const [value, setValue] = useState(member.pronunciation || "");
+  const [state, setState] = useState("");
+
+  useEffect(() => { setValue(member.pronunciation || ""); }, [member.pronunciation]);
+
+  const save = async () => {
+    if ((member.pronunciation || "") === value.trim()) return;
+    setState("saving");
+    try { await onSave(member.id, value.trim()); setState("saved"); setTimeout(() => setState(""), 1800); }
+    catch { setState("failed"); }
+  };
+
+  return (
+    <label className="says-name">
+      <span>Said aloud as</span>
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+        placeholder={member.name}
+        aria-label={`How ${member.name} is said aloud`}
+      />
+      <small>
+        {state === "saving" ? "Saving…"
+          : state === "saved" ? "Saved"
+          : state === "failed" ? "Didn't save"
+          : "Only used when Sol speaks"}
+      </small>
+    </label>
   );
 }
 

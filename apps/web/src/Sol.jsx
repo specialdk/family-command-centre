@@ -28,7 +28,15 @@ const APPLY_LABEL = {
   notify_family: "Send it to everyone"
 };
 
-export default function Sol({ viewer, onClose, onChanged }) {
+export default function Sol({ viewer, members = [], onClose, onChanged }) {
+  /* name -> how it is said, for the speech engine only. */
+  const pronunciations = React.useMemo(
+    () => Object.fromEntries(
+      members.filter((m) => m.pronunciation).map((m) => [m.name, m.pronunciation])
+    ),
+    [members]
+  );
+
   const [asked, setAsked]       = useState("");
   const [reply, setReply]       = useState("");
   const [proposal, setProposal] = useState(null);
@@ -67,7 +75,7 @@ export default function Sol({ viewer, onClose, onChanged }) {
       setHistory(data.history || []);
       /* A proposal is not read out. It is a thing to look at and approve,
          and hearing "shall I send this to everyone" is not consent. */
-      if (spoken && !mute && !data.proposal) speak(data.reply);
+      if (spoken && !mute && !data.proposal) speak(data.reply, { pronunciations });
     } catch (e) {
       setError(e.message);
       setReply("");

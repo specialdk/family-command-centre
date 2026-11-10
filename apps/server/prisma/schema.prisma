@@ -60,6 +60,11 @@ model FamilyMember {
   role      MemberRole @default(OTHER)
   /// Maps to the CSS custom property: rhian | danielle | lachie | jack | maddie | family
   colorKey  String?
+  /// How the name is said, for text-to-speech only - never shown. Rhian is
+  /// "Ryan", Danielle is "Dan-eel". An English speech engine reads the
+  /// letters and gets both wrong, and a family app that mispronounces the
+  /// family is not one anybody keeps using. Null means the spelling is fine.
+  pronunciation String?
   /// Microsoft sign-in address. Null for members who do not sign in.
   email     String?    @unique
   canSignIn Boolean    @default(false)

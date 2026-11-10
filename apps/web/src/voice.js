@@ -33,11 +33,41 @@ export function primeSpeech() {
   } catch { /* not fatal: it just means the first reply may stay silent */ }
 }
 
-export function speak(text, { onDone } = {}) {
+/* An English speech engine reads the letters: Rhian comes out "Ree-ann" and
+   Danielle "Dan-ee-ell". Neither is anyone's name. Each family member can
+   record how theirs is said and it is swapped in here, in the spoken text
+   only - the screen always shows the real spelling.
+
+   Longest first, so "Anne-Marie" is not half-replaced by a rule for "Anne",
+   and word-bounded, so a name inside another word is left alone. The
+   boundary sits before an apostrophe, which keeps "Rhian's" working. */
+export function sayAs(text, pronunciations) {
+  let out = String(text || "");
+  if (!pronunciations) return out;
+  const pairs = Object.entries(pronunciations)
+    .filter(([name, say]) => name && say && name.toLowerCase() !== String(say).toLowerCase())
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [name, say] of pairs) {
+    const safe = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    /* Not \b: that only knows ASCII letters, so a name beginning with ŋ -
+       Yolŋu names, among others - would never match, and a name ending in a
+       full stop would never match either. A letter-or-number test on each
+       side, with the preceding character captured rather than looked behind,
+       because lookbehind is still missing on older iOS. */
+    const edge = "[\\p{L}\\p{N}]";
+    out = out.replace(
+      new RegExp(`(^|(?!${edge}).)(${safe})(?!${edge})`, "giu"),
+      (_m, before) => before + say
+    );
+  }
+  return out;
+}
+
+export function speak(text, { onDone, pronunciations } = {}) {
   if (!canSpeak || !text) return onDone?.();
   try {
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text));
+    const u = new SpeechSynthesisUtterance(sayAs(text, pronunciations));
     u.lang = "en-AU";
     u.rate = 1.02;
     u.onend = () => onDone?.();

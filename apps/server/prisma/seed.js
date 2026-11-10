@@ -59,6 +59,18 @@ async function main() {
   for (const p of PEOPLE) {
     await prisma.familyMember.upsert({ where: { name: p.name }, update: p, create: p });
   }
+
+  /* How the names are said, for speech only. Seeded once and never
+     overwritten: this seed runs on every deploy, and the family can edit
+     these on the Family page. Writing them unconditionally would quietly
+     undo their corrections the next time anything shipped. */
+  const SAY_AS = { Rhian: "Ryan", Danielle: "Dan-eel" };
+  for (const [name, say] of Object.entries(SAY_AS)) {
+    await prisma.familyMember.updateMany({
+      where: { name, pronunciation: null },
+      data: { pronunciation: say }
+    });
+  }
   const members = await prisma.familyMember.findMany();
   const by = Object.fromEntries(members.map((m) => [m.name, m.id]));
 

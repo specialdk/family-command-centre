@@ -9142,6 +9142,21 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .notification-sheet > .more-grid button.active {
   border-color: var(--navy); color: var(--navy); background: #f4f3ff;
 }
+/* The one editable thing on a family card. Quiet by default - it is a
+   correction, not a setting most people will touch twice. */
+.says-name { display: block; margin-top: 14px; }
+.says-name > span {
+  display: block; color: var(--muted); font-size: 12px;
+  font-weight: 850; text-transform: uppercase; letter-spacing: .06em;
+}
+.says-name input {
+  width: 100%; margin-top: 5px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+  font: inherit; font-size: 14px; color: var(--ink); background: #fff;
+}
+.says-name input:focus { outline: none; border-color: #8299c7; box-shadow: 0 0 0 3px #5071b41c; }
+.says-name small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+
 /* Sol answers a "what's on" question with one line per item. Without this
    those line breaks collapse and the day arrives as one paragraph. */
 .assistant-reply { white-space: pre-line; text-align: left; }

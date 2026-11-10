@@ -171,6 +171,24 @@ function describeRecurrence(rule) {
   return "repeats";
 }
 
+/* The only editable thing on a family member so far. Kept deliberately
+   narrow: this endpoint cannot rename anyone, change a role or grant
+   sign-in, because none of that should be a one-field PATCH. */
+app.patch("/api/members/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Unknown member" });
+  const raw = req.body?.pronunciation;
+  if (raw === undefined) return res.status(400).json({ error: "Nothing to change" });
+
+  // An empty box means "the spelling is fine", which is null, not "".
+  const value = String(raw).trim();
+  const member = await prisma.familyMember.update({
+    where: { id },
+    data: { pronunciation: value ? value.slice(0, 60) : null }
+  });
+  res.json(member);
+});
+
 app.use("/api/sol", createSolRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ }));
 
 app.post("/api/tasks", async (req, res) => {
