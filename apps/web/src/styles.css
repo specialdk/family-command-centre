@@ -8603,3 +8603,133 @@ input[type=date],input[type=time] {
   font-size: 14px;
   margin-top: 14px;
 }
+
+/* ---------- Calendar module ----------
+   Rhian's stylesheet already had the month grid, week grid and day schedule.
+   What follows is only the connective tissue he had no class for: the
+   left-hand navigator, a few day/cell states, and the add-item sheet. */
+
+.calendar-layout {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.calendar-nav { position: sticky; top: 18px; display: grid; gap: 12px; }
+.calendar-nav-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 0 4px;
+}
+
+.mini-cal {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 7px 24px #1f27370b;
+}
+.mini-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.mini-cal-head strong { font: 500 15px Georgia, serif; }
+.mini-cal-head button {
+  border: 0; background: transparent; cursor: pointer;
+  color: var(--muted); width: 26px; height: 26px; border-radius: 7px; font-size: 16px;
+}
+.mini-cal-head button:hover { background: #eef1f9; color: var(--ink); }
+.mini-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.mini-cal-weekday {
+  text-align: center; font-size: 10px; font-weight: 900;
+  color: #a2a8b8; text-transform: uppercase; padding-bottom: 4px;
+}
+.mini-cal-day {
+  border: 0; background: transparent; cursor: pointer;
+  aspect-ratio: 1; border-radius: 8px;
+  font-size: 12px; font-weight: 700; color: var(--ink);
+  position: relative;
+}
+.mini-cal-day:hover { background: #eef1f9; }
+.mini-cal-day.outside { color: #c2c7d4; }
+.mini-cal-day.today { color: var(--navy); font-weight: 900; }
+.mini-cal-day.picked { background: var(--navy); color: #fff; }
+/* A quiet dot under any day that has something on it. */
+.mini-cal-day.busy::after {
+  content: ""; position: absolute; left: 50%; bottom: 3px;
+  width: 4px; height: 4px; margin-left: -2px;
+  border-radius: 50%; background: var(--sky);
+}
+.mini-cal-day.picked.busy::after { background: #fff; }
+
+.chip-button {
+  border: 1px solid var(--line); background: #fff; cursor: pointer;
+  border-radius: 10px; padding: 8px 13px; font-size: 14px; font-weight: 800; color: #4a5468;
+}
+.chip-button:hover { background: #f6f8fd; }
+
+.month-cell.outside { background: #fbfcfe; }
+.month-cell.outside .month-cell-date { color: #c2c7d4; }
+.month-cell.is-today { background: #f7faff; }
+.month-cell-date { font-size: 13px; font-weight: 800; color: #5b6478; margin-bottom: 5px; }
+.month-cell.is-today .month-cell-date { color: var(--navy); }
+.month-more {
+  border: 0; background: transparent; cursor: pointer; text-align: left;
+  color: var(--muted); font-size: 12px; font-weight: 750; padding: 2px 5px;
+}
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.week-day-head {
+  display: flex; align-items: baseline; gap: 6px; cursor: pointer;
+  padding: 9px 10px; border-bottom: 1px solid var(--line); background: #f7f9fd;
+}
+.week-day-head span { font-size: 11px; font-weight: 900; color: #8b93a6; text-transform: uppercase; }
+.week-day-head strong { font-size: 15px; }
+.day-column.is-today .week-day-head { background: #eef4ff; }
+.day-column.is-today .week-day-head strong { color: var(--navy); }
+.week-empty { color: #c7ccd8; font-size: 13px; text-align: center; padding: 10px 0; }
+
+.day-hour {
+  position: absolute; right: 9px;
+  font-size: 11px; font-weight: 750; color: #8b91a5;
+  transform: translateY(-1px);
+}
+
+/* Add-item sheet */
+.sheet-card {
+  background: #fff; border-radius: 20px; padding: 26px 28px;
+  display: grid; gap: 14px; box-shadow: 0 24px 70px #10163a4d;
+}
+.sheet-card h2 { margin: 2px 0 6px; font: 500 24px Georgia, serif; }
+.sheet-card label { display: grid; gap: 6px; font-size: 13px; font-weight: 800; color: var(--muted); }
+.sheet-card input[type="text"], .sheet-card input:not([type]), .sheet-card input[type="time"], .sheet-card select {
+  min-height: 44px; border: 1px solid var(--line); border-radius: 11px;
+  padding: 0 12px; font-size: 15px; background: #fbfcfe; color: var(--ink);
+}
+.sheet-card input:disabled { background: #f1f3f7; color: #a7adbb; }
+.sheet-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; }
+.sheet-check { flex-direction: row; align-items: center; gap: 8px; display: flex; }
+.sheet-check input { width: 18px; height: 18px; min-height: 0; }
+.sheet-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+.sheet-actions button:disabled { opacity: .6; cursor: default; }
+
+@media (max-width: 1100px) {
+  .calendar-layout { grid-template-columns: 1fr; }
+  .calendar-nav { position: static; }
+  .mini-cal { max-width: 320px; }
+}
+
+/* Rhian already styled .date-title > button (29px square) and .today-button.
+   We use his classes; all that is needed here is wrapping on narrow screens. */
+.calendar-toolbar { flex-wrap: wrap; row-gap: 12px; }
+.date-title h2 { font: 500 22px Georgia, serif; }
+
+/* Rhian styled the per-person day headers for everyone except himself and
+   the shared family column. */
+.day-person-header.person-rhian  { color: var(--rhian); }
+.day-person-header.person-family { color: var(--family); }
+.day-person-header .person-dot { width: 10px; height: 10px; background: currentColor; flex: none; }
+.day-person-header strong { color: var(--ink); font-size: 15px; }

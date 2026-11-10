@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import Calendar from "./Calendar.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -108,6 +109,11 @@ export default function App() {
   const toggleChore = (c) => mutate(() => api(`/api/chores/${c.id}`, {
     method: "PATCH", body: JSON.stringify({ completed: !c.completed })
   }));
+  const createEvent = async (payload) => {
+    await api("/api/events", { method: "POST", body: JSON.stringify(payload) });
+    await load();
+  };
+
   const toggleShopping = (i) => mutate(() => api(`/api/shopping/${i.id}`, {
     method: "PATCH", body: JSON.stringify({ checked: !i.checked })
   }));
@@ -127,9 +133,10 @@ export default function App() {
   const openTasks = useMemo(() => (data?.tasks || []).filter((t) => t.status === "OPEN" && mine(t)), [data, viewer, everyone]);
   const doneTasks = useMemo(() => (data?.tasks || []).filter((t) => t.status === "DONE" && mine(t)), [data, viewer, everyone]);
   const myChores  = useMemo(() => (data?.chores || []).filter(mine), [data, viewer, everyone]);
+  const scopedEvents = useMemo(() => (data?.events || []).filter(mine), [data, viewer, everyone]);
   const upcoming  = useMemo(() =>
-    (data?.events || []).filter((e) => new Date(e.endsAt) >= new Date() && mine(e))
-      .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)), [data, viewer, everyone]);
+    scopedEvents.filter((e) => new Date(e.endsAt) >= new Date())
+      .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)), [scopedEvents]);
 
   // Switching to a child while on a parent-only tab must not strand them there.
   useEffect(() => {
@@ -242,7 +249,12 @@ export default function App() {
               toggleTask={toggleTask} toggleChore={toggleChore} onSeeAll={() => setTab("calendar")}
             />
           )}
-          {tab === "calendar" && <Calendar events={upcoming} members={data.members} />}
+          {tab === "calendar" && (
+            <Calendar
+              events={scopedEvents} members={data.members} calendars={data.calendars || []}
+              viewer={viewer} onCreate={createEvent}
+            />
+          )}
           {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} />}
           {tab === "family"   && <Family members={data.members} tasks={data.tasks} />}
           {tab === "recipes"  && <Recipes meals={data.meals} />}
@@ -328,28 +340,6 @@ function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, togg
         </section>
       </div>
     </>
-  );
-}
-
-function Calendar({ events, members }) {
-  return (
-    <section className="agenda-card">
-      <div className="section-title"><h2>Family calendar</h2><span className="count-badge">{events.length}</span></div>
-      <div className="timeline">
-        {events.map((e) => (
-          <article key={e.id}>
-            <time>{timeOf(e.startsAt)}</time>
-            <span className={`timeline-dot ${personClass(e.member, members)}`}
-                  style={{ color: "var(--member-color, var(--navy))" }} />
-            <div>
-              <strong>{e.title}</strong>
-              <small>{[dayOf(e.startsAt), e.location, e.member?.name].filter(Boolean).join(" · ")}</small>
-            </div>
-          </article>
-        ))}
-        {!events.length && <p style={{ color: "var(--muted)" }}>No events yet.</p>}
-      </div>
-    </section>
   );
 }
 
