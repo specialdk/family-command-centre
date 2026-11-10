@@ -317,6 +317,20 @@ app.delete("/api/events/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
+/// The family-readable history. Notices are written at the moment something
+/// happens and never rewritten, so this is a record rather than a re-render
+/// of current state. ActivityLog remains the lower-level audit trail, kept
+/// for sync debugging rather than for people to read.
+app.get("/api/notifications", async (req, res) => {
+  const take = Math.min(Number(req.query.limit) || 100, 300);
+  const notices = await prisma.notification.findMany({
+    include: { author: true, reads: { select: { memberId: true } } },
+    orderBy: { createdAt: "desc" },
+    take
+  });
+  res.json(notices);
+});
+
 app.post("/api/notifications", async (req, res) => {
   const { title, body, authorId } = req.body || {};
   if (!String(title || "").trim()) return res.status(400).json({ error: "Say something" });

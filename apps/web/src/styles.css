@@ -8803,3 +8803,23 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   color: #9a98b4; margin-left: 4px;
 }
 .notice-empty { color: var(--muted); font-size: 14px; margin: 12px 0 2px; }
+
+/* Notices card: calm when there is nothing new, with a way back to history */
+.notice-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.notice-history-link {
+  border: 0; background: transparent; cursor: pointer;
+  color: #6b67a6; font-size: 13px; font-weight: 800;
+}
+.notice-history-link:hover { text-decoration: underline; }
+
+/* History sheet — reuses Rhian's .timeline shape */
+.history-sheet { width: min(640px, 100%); }
+.history-scroll { max-height: min(56vh, 520px); overflow: auto; padding-right: 4px; }
+.history-sheet .timeline { margin-top: 4px; }
+.history-sheet .timeline article { min-height: 0; padding: 12px 0; align-items: start; }
+.history-sheet .timeline article:not(:last-child)::after {
+  content: ""; position: absolute; top: 22px; bottom: 0; left: 85px; width: 1px; background: #e8eaf3;
+}
+.history-sheet .timeline time { font-size: 12px; color: #8b91a5; }
+.history-sheet .timeline strong { font-size: 14px; }
+.history-sheet .timeline small { display: block; margin-top: 3px; color: #9196a1; font-size: 12px; }

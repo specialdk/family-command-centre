@@ -72,6 +72,7 @@ export default function App() {
   const [viewingId, setViewingId] = useState(recallViewer);
   const [scope, setScope] = useState("mine");   // "mine" | "everyone"
   const [composing, setComposing] = useState(false);
+  const [history, setHistory]     = useState(null);   // null = closed
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -122,6 +123,11 @@ export default function App() {
   const deleteEvent = async (id) => {
     await api(`/api/events/${id}`, { method: "DELETE", body: JSON.stringify({ actorId: viewer?.id }) });
     await load();
+  };
+  const openHistory = async () => {
+    setHistory([]);                                   // open immediately, fill when it lands
+    try { setHistory(await api("/api/notifications?limit=200")); }
+    catch (e) { setMessage(e.message); setHistory(null); }
   };
   const postNotice = async (title, body) => {
     await api("/api/notifications", { method: "POST", body: JSON.stringify({ title, body, authorId: viewer?.id }) });
@@ -280,8 +286,8 @@ export default function App() {
 
           {tab === "today" && (
             <Notices
-              notices={notices} unread={unread} members={data.members} viewer={viewer}
-              onCompose={() => setComposing(true)} onRead={markNoticesRead}
+              unread={unread} members={data.members} viewer={viewer}
+              onCompose={() => setComposing(true)} onRead={markNoticesRead} onHistory={openHistory}
             />
           )}
 
@@ -307,6 +313,7 @@ export default function App() {
       </div>
 
       {composing && <NoticeComposer onCancel={() => setComposing(false)} onSend={postNotice} />}
+      {history !== null && <HistorySheet notices={history} members={data.members} viewer={viewer} onCancel={() => setHistory(null)} />}
     </div>
   );
 }
@@ -321,20 +328,17 @@ const sinceLabel = (iso) => {
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
 
-function Notices({ notices, unread, members, viewer, onCompose, onRead }) {
-  const isNew = (nt) => unread.some((u) => u.id === nt.id);
-
-  /* Show everything unread, topped up with recent read ones so the card is
-     never nearly empty. Capped so a long absence does not produce a wall. */
-  const shown = useMemo(() => {
-    const neu = notices.filter(isNew).slice(0, 8);
-    const old = notices.filter((nt) => !isNew(nt)).slice(0, Math.max(0, 4 - neu.length));
-    return [...neu, ...old];
-  }, [notices, unread]);
+function Notices({ unread, members, viewer, onCompose, onRead, onHistory }) {
+  /* A notice is an announcement: once everyone has seen it, it has done its
+     job and leaves the card. Nothing is deleted - it moves to the history,
+     which is the record. The card is allowed to be empty; "everyone is up to
+     date" should be a real resting state, not a heading over old news. */
+  const shown = useMemo(() => unread.slice(0, 8), [unread]);
 
   /* Marked read because they were on screen, not because a bell was tapped.
-     That is what makes the receipts below mean anything. */
-  const shownUnreadIds = shown.filter(isNew).map((nt) => nt.id).join(",");
+     That is what makes the receipts mean anything. Dropping off happens on
+     the next load rather than live, so nothing vanishes while being read. */
+  const shownUnreadIds = shown.map((nt) => nt.id).join(",");
   useEffect(() => {
     if (!shownUnreadIds) return;
     const t = setTimeout(() => onRead(shownUnreadIds.split(",").map(Number)), 2500);
@@ -348,7 +352,10 @@ function Notices({ notices, unread, members, viewer, onCompose, onRead }) {
           <p className="eyebrow">FAMILY NOTIFICATIONS</p>
           <h2>{unread.length ? `${unread.length} new` : "Everyone is up to date"}</h2>
         </div>
-        <button className="family-notify-button" onClick={onCompose}>＋ Notify family</button>
+        <div className="notice-head-actions">
+          <button className="notice-history-link" onClick={onHistory}>Recent activity →</button>
+          <button className="family-notify-button" onClick={onCompose}>＋ Notify family</button>
+        </div>
       </div>
       {shown.map((nt) => (
         <article key={nt.id}>
@@ -358,11 +365,42 @@ function Notices({ notices, unread, members, viewer, onCompose, onRead }) {
             <small>{[nt.body, nt.author?.name, sinceLabel(nt.createdAt)].filter(Boolean).join(" · ")}</small>
             <ReadBy notice={nt} members={members} viewer={viewer} />
           </div>
-          {isNew(nt) && <span className="notice-new">New</span>}
+          <span className="notice-new">New</span>
         </article>
       ))}
-      {!shown.length && <p className="notice-empty">Nothing to report.</p>}
     </section>
+  );
+}
+
+/// The history: every notice ever raised, newest first, using Rhian's
+/// .timeline shape - when, a dot, what happened.
+function HistorySheet({ notices, members, viewer, onCancel }) {
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="notification-sheet history-sheet" onClick={(e) => e.stopPropagation()}>
+        <p className="eyebrow">RECENT ACTIVITY</p>
+        <h2>What has been happening</h2>
+        <div className="history-scroll">
+          <div className="timeline">
+            {notices.map((nt) => (
+              <article key={nt.id}>
+                <time>{sinceLabel(nt.createdAt)}</time>
+                <span className="timeline-dot" style={{ color: nt.kind === "FAMILY_NOTICE" ? "var(--purple)" : "var(--sky)" }} />
+                <div>
+                  <strong>{nt.title}</strong>
+                  <small>{[nt.body, nt.author ? `by ${nt.author.name}` : null].filter(Boolean).join(" · ")}</small>
+                  <ReadBy notice={nt} members={members} viewer={viewer} />
+                </div>
+              </article>
+            ))}
+            {!notices.length && <p className="notice-empty">Nothing yet.</p>}
+          </div>
+        </div>
+        <div className="sheet-actions">
+          <button type="button" className="chip-button" onClick={onCancel}>Close</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
