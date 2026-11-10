@@ -9142,6 +9142,10 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .notification-sheet > .more-grid button.active {
   border-color: var(--navy); color: var(--navy); background: #f4f3ff;
 }
+/* Sol answers a "what's on" question with one line per item. Without this
+   those line breaks collapse and the day arrives as one paragraph. */
+.assistant-reply { white-space: pre-line; text-align: left; }
+
 /* `.proposal-card button` (0,1,1) beats `.chip-button`, so declining a
    proposal looked exactly as emphatic as sending it to four people. The
    quiet option should look quiet. */
