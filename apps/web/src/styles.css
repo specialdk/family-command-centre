@@ -8905,3 +8905,183 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   overflow: hidden;
   line-height: 1.25;
 }
+
+/* ---------- Phones ----------
+   Rhian's own CSS already turns .nav-rail into a fixed 64px bottom bar at
+   980px and hides the button labels. What it did not have was a way to reach
+   twelve items with a thumb, so four stay on the bar and the rest move behind
+   "More". His .page-pad bottom padding is restated for our .page-body. */
+
+.nav-more { display: none; }
+
+@media (max-width: 980px) {
+  .nav-rail nav button.nav-secondary { display: none; }
+  .nav-rail nav .nav-grip { display: none; }
+
+  /* His media query turns `nav` into a row but not .sortable-nav inside it,
+     and his fixed button widths (74px, and 80x88 for Today) overflow a
+     390px phone. Let the five share the width instead. */
+  .nav-rail { padding: 6px 8px; gap: 6px; }
+  .nav-rail nav { width: 100%; }
+  .sortable-nav {
+    flex-direction: row; width: 100%;
+    justify-content: space-around; gap: 2px;
+  }
+  .nav-rail nav button.nav-primary, .nav-more {
+    flex: 1 1 0; width: auto; min-width: 0; max-width: 90px; height: 56px; gap: 2px;
+  }
+  .nav-rail nav .today-nav {
+    flex: 1 1 0; width: auto; height: 56px; border-radius: 16px;
+  }
+  .nav-rail nav .today-nav > span { width: 26px; height: 26px; font-size: 18px; border-radius: 9px; }
+  .nav-rail nav .today-nav em { display: none; }
+  .nav-rail nav button > span, .nav-more span { width: 26px; height: 26px; font-size: 17px; border-radius: 9px; }
+  .nav-rail nav button small, .nav-more small { font-size: 11px; }
+  .nav-rail nav .today-nav small { font-size: 11px; }
+  /* The rail is a flex row of three things: the house mark, the nav, and the
+     sign-out avatar. Their min-content came to 405px on a 390px phone, so
+     Chrome widened the layout viewport to fit and the whole page scrolled
+     sideways - which is why nothing *looked* like it was overflowing. The
+     mark and the avatar are the two that earn nothing on a bottom bar: the
+     mark is decoration, and sign-out moved into "More". */
+  .nav-rail .brand-mark, .nav-rail > .avatar-button { display: none; }
+  .nav-rail nav { flex: 1 1 auto; min-width: 0; }
+
+  .nav-more {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border: 0; border-radius: 18px; background: 0 0; color: #ffffffbf; cursor: pointer;
+  }
+  .nav-more.active, .nav-more:hover { background: #2b3858; color: #fff; }
+  .nav-more span {
+    display: grid; place-items: center; width: 36px; height: 36px;
+    border-radius: 12px; background: #ffffff26; font-size: 22px; line-height: 1;
+  }
+  .nav-more small { font-size: 13px; font-weight: 850; }
+  .nav-rail nav .nav-primary small, .nav-more small { display: block; }
+
+  /* Clear the bottom bar. */
+  .page-body { padding-bottom: 92px; }
+  /* Our calendar nav column stacks above the panel rather than beside it. */
+  .calendar-layout { grid-template-columns: 1fr; }
+  .calendar-nav { position: static; }
+  .mini-cal { max-width: 360px; }
+}
+
+@media (max-width: 700px) {
+  .page-body { padding: 16px 13px 92px; }
+  .topbar { padding: 12px 14px; gap: 10px; flex-wrap: wrap; }
+  .topbar h1 { font-size: 22px; }
+  .status-strip { padding: 7px 14px; font-size: 14px; }
+
+  /* The scope switch matters more on a phone than the settings cog. */
+  .settings-button { display: none; }
+  .voice-button { padding: 9px 11px; font-size: 14px; }
+  .voice-button span { display: none; }
+
+  /* .topbar-actions is a nowrap flex row in his CSS. On a 390px phone its
+     five controls measured 391px inside a 362px topbar, so the document grew
+     to 405px and the page scrolled sideways. The topbar already wraps here,
+     so the actions get a row of their own and are allowed to wrap within it. */
+  .topbar-actions {
+    flex-wrap: wrap; justify-content: flex-end;
+    width: 100%; min-width: 0; gap: 8px;
+  }
+  .profile-picker { min-width: 0; }
+  .profile-picker select { max-width: 112px; }
+
+  /* Rhian hides .view-switch entirely at 620px. We keep it, because opening
+     on Day only works if Week and Month are still reachable. */
+  .calendar-toolbar { align-items: flex-start; }
+  .calendar-toolbar-controls { width: 100%; justify-content: space-between; }
+  .view-switch button { padding: 7px 10px; font-size: 13px; }
+
+  /* Week stays usable by scrolling sideways, as his CSS intended. */
+  .calendar-panel { overflow-x: auto; padding: 16px 14px; }
+  .week-grid { min-width: 720px; }
+  .month-grid { min-width: 620px; }
+
+  /* Rhian's two-column grid of name chips costs about 200px before a single
+     event is visible. One scrollable row of initials does the same job - the
+     colour and the initials are the identity; the names were the padding.
+     font-size:0 is what hides the bare text node beside the <span>. */
+  .family-filters {
+    display: flex; flex-wrap: nowrap; overflow-x: auto;
+    gap: 6px; margin: 12px 0 10px; padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .family-filters::-webkit-scrollbar { display: none; }
+  .filter-label { display: none; }
+  .person-filter { width: auto; flex: 0 0 auto; font-size: 0; gap: 0; padding: 5px; }
+  .person-filter > span { font-size: 12px; }
+
+  /* The staging rail is for dragging, which is not how a phone schedules
+     anything - there it is tap the task, then tap the time. So the day goes
+     first and the rail sits under it. */
+  .day-with-tasks { grid-template-columns: 1fr; }
+  .day-with-tasks .day-schedule-shell { order: 1; }
+  .day-task-panel { order: 2; border-right: 0; border-top: 1px solid #d7e8f5; padding: 18px 14px; }
+  .day-schedule-scroll { height: min(460px, 60vh); min-height: 320px; }
+
+  .family-notifications { padding: 14px; }
+  /* The title, "Recent activity" and "Notify family" share one nowrap row,
+     which squeezed the button into a 60px column two words tall. */
+  .family-notification-heading { flex-wrap: wrap; gap: 10px; }
+  .family-notification-heading h2 { font-size: 22px; }
+
+  /* The app's name is on the home-screen icon; it does not need 30px of a
+     664px phone as well. */
+  .topbar .eyebrow { display: none; }
+
+  /* The date picker stacked above the schedule meant opening Calendar showed
+     a month grid and no events at all. The day comes first; the picker is
+     still a swipe away, and narrower, since square cells on a full-width
+     card made a 330px tall month. */
+  .calendar-panel { order: 1; }
+  .calendar-nav { order: 2; }
+  .mini-cal { max-width: 310px; margin: 0 auto; padding: 10px; }
+  .mini-cal-day { aspect-ratio: auto; height: 32px; }
+  /* Flex-wrapping the heading still left the notify button a two-line
+     sliver. On a phone the title gets its own line and the two actions sit
+     under it at their natural width - no sharing, no shrinking. */
+  .family-notification-heading { display: block; }
+  .notice-head-actions { width: 100%; justify-content: flex-start; margin-top: 10px; }
+  .notice-history-link { white-space: nowrap; }
+  /* His own 620px rule collapses this to a 34px "+" once the label is in a
+     span, which is what it was always meant to be. */
+  .family-notify-button { margin-left: auto; }
+
+  /* Sheets fill the screen rather than floating in a corner. */
+  .modal-backdrop { padding: 10px; align-items: end; }
+  .sheet-card, .notification-sheet { width: 100%; padding: 20px 18px; }
+  .sheet-row { grid-template-columns: 1fr; }
+  .sheet-actions { flex-wrap: wrap; }
+  .sheet-actions button { flex: 1 1 auto; }
+  .danger-ghost { flex-basis: 100%; margin-right: 0; }
+}
+
+/* The More sheet */
+/* Everything inside a sheet is a solid purple button by default - his
+   `.notification-sheet>div button` is (0,1,2) and beats a plain `.more-grid
+   button`. A menu of eight places to go is not eight primary actions, so
+   these are quiet cards, and the weight is raised to say so. */
+.notification-sheet > .more-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.notification-sheet > .more-grid button {
+  background: #fff; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 11px; font-size: 14px; font-weight: 800;
+}
+.notification-sheet > .more-grid button.active {
+  border-color: var(--navy); color: var(--navy); background: #f4f3ff;
+}
+.notification-sheet > .sheet-actions .chip-button {
+  background: #fff; color: #4a5468; border: 1px solid var(--line);
+  border-radius: 10px; font-size: 14px; font-weight: 800;
+}
+.more-grid button {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line); background: #fff; border-radius: 13px;
+  padding: 13px 12px; font-size: 15px; font-weight: 800; color: var(--ink);
+  cursor: pointer; text-align: left;
+}
+.more-grid button:hover { background: #f6f8fd; }
+.more-grid button.active { border-color: var(--navy); color: var(--navy); background: #f4f3ff; }
+.more-grid button span { font-size: 20px; }

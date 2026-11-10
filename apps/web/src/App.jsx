@@ -4,16 +4,16 @@ import Calendar from "./Calendar.jsx";
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
 const NAV = [
-  { key: "today",       emoji: "🏠",        label: "Today",       ready: true, today: true },
-  { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true },
-  { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true },
+  { key: "today",       emoji: "🏠",        label: "Today",       ready: true, today: true, primary: true },
+  { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true, primary: true },
+  { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true, primary: true },
   { key: "family",      emoji: "👨‍👩‍👧‍👦", label: "Family",      ready: true, parentOnly: true },
   { key: "recipes",     emoji: "🍲",        label: "Recipes",     ready: true },
   { key: "ideas",       emoji: "💡",        label: "Ideas" },
   { key: "inputs",      emoji: "📥",        label: "Inputs",      parentOnly: true },
   { key: "finances",    emoji: "💰",        label: "Finances",    parentOnly: true },
   { key: "investments", emoji: "📈",        label: "Investments", parentOnly: true },
-  { key: "shopping",    emoji: "🛒",        label: "Shopping",    ready: true },
+  { key: "shopping",    emoji: "🛒",        label: "Shopping",    ready: true, primary: true },
   { key: "how",         emoji: "?",         label: "How do I" },
   { key: "uploads",     emoji: "＋",        label: "Uploads" }
 ];
@@ -73,6 +73,7 @@ export default function App() {
   const [scope, setScope] = useState("mine");   // "mine" | "everyone"
   const [composing, setComposing] = useState(false);
   const [history, setHistory]     = useState(null);   // null = closed
+  const [moreOpen, setMoreOpen]   = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -231,7 +232,11 @@ export default function App() {
             {nav.map((item) => (
               <button
                 key={item.key}
-                className={[item.today ? "today-nav" : "", tab === item.key ? "active" : ""].filter(Boolean).join(" ")}
+                className={[
+                  item.today ? "today-nav" : "",
+                  item.primary ? "nav-primary" : "nav-secondary",
+                  tab === item.key ? "active" : ""
+                ].filter(Boolean).join(" ")}
                 onClick={() => setTab(item.key)}
                 title={item.label}
               >
@@ -241,6 +246,15 @@ export default function App() {
                 {!item.today && <i className="nav-grip">⋮⋮</i>}
               </button>
             ))}
+            {/* Shown only on small screens; the other eight live behind it. */}
+            <button
+              className={`nav-more ${nav.some((i) => !i.primary && i.key === tab) ? "active" : ""}`}
+              onClick={() => setMoreOpen(true)}
+              title="More"
+            >
+              <span>⋯</span>
+              <small>More</small>
+            </button>
           </div>
         </nav>
         <button className="avatar-button" onClick={logout} title="Sign out">
@@ -329,8 +343,43 @@ export default function App() {
         </div>
       </div>
 
+      {moreOpen && (
+        <MoreSheet
+          items={nav.filter((i) => !i.primary)} current={tab}
+          onPick={(k) => { setTab(k); setMoreOpen(false); }}
+          onCancel={() => setMoreOpen(false)}
+          onSignOut={logout}
+        />
+      )}
       {composing && <NoticeComposer onCancel={() => setComposing(false)} onSend={postNotice} />}
       {history !== null && <HistorySheet notices={history} members={data.members} viewer={viewer} onCancel={() => setHistory(null)} />}
+    </div>
+  );
+}
+
+function MoreSheet({ items, current, onPick, onCancel, onSignOut }) {
+  /* Sign out lives here on a phone. The bottom bar has five slots and a
+     sign-out button is not worth one of them; it also kept the bar 42px
+     wider than the screen, which is how it ended up in this sheet. */
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="notification-sheet more-sheet" onClick={(e) => e.stopPropagation()}>
+        <p className="eyebrow">GO TO</p>
+        <h2>Everything else</h2>
+        <div className="more-grid">
+          {items.map((i) => (
+            <button key={i.key} className={current === i.key ? "active" : ""} onClick={() => onPick(i.key)}>
+              <span>{i.emoji}</span>{i.label}
+            </button>
+          ))}
+        </div>
+        <div className="sheet-actions">
+          <button type="button" className="chip-button" onClick={onCancel}>Close</button>
+          {onSignOut && (
+            <button type="button" className="chip-button" onClick={onSignOut}>Sign out</button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -371,7 +420,7 @@ function Notices({ unread, members, viewer, onCompose, onRead, onHistory }) {
         </div>
         <div className="notice-head-actions">
           <button className="notice-history-link" onClick={onHistory}>Recent activity →</button>
-          <button className="family-notify-button" onClick={onCompose}>＋ Notify family</button>
+          <button className="family-notify-button" onClick={onCompose}>＋<span>Notify family</span></button>
         </div>
       </div>
       {shown.map((nt) => (

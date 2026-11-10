@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { DAY_CODES, shortDay, parseRRule, buildRRule, describeRRule, expandEvents } from "./rrule.js";
 
 /* The calendar, built to Rhian's own stylesheet. The geometry comes from
@@ -33,7 +33,12 @@ function monthMatrix(cursor) {
 
 export default function Calendar({ events, tasks = [], members, calendars, viewer, onCreate, onUpdate, onDelete, onToggleTask, onSchedule }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
-  const [view, setView]     = useState("week");
+  /* Seven columns do not fit a phone, so open on Day there. Read once at
+     mount; after that the view is whatever the person chose. */
+  const [view, setView] = useState(() => {
+    try { return window.matchMedia("(max-width: 700px)").matches ? "day" : "week"; }
+    catch { return "week"; }
+  });
   const [hidden, setHidden] = useState(() => new Set());
   const [draft, setDraft]   = useState(null);
   const [notice, setNotice] = useState("");
@@ -338,6 +343,17 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
   const forDay = events.filter((e) => sameDay(new Date(e.startsAt), cursor));
   const hours = Array.from({ length: 24 }, (_, h) => h);
 
+  /* The grid is a full 24 hours and one pixel is one minute, so it opens at
+     midnight - which on a phone is a screen of empty night. Start at the
+     first thing on, or at 7am when the day is clear. */
+  const scrollRef = useRef(null);
+  const firstAt = forDay.length
+    ? Math.min(...forDay.map((e) => { const d = new Date(e.startsAt); return d.getHours() * 60 + d.getMinutes(); }))
+    : 7 * 60;
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, firstAt - 40);
+  }, [+cursor, firstAt]);
+
   // One pixel is one minute; snap to the nearest quarter hour.
   const minutesAt = (ev) =>
     Math.max(0, Math.min(23 * 60, Math.round(ev.nativeEvent.offsetY / 15) * 15));
@@ -389,7 +405,7 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
       </aside>
 
     <div className="day-schedule-shell">
-      <div className="day-schedule-scroll">
+      <div className="day-schedule-scroll" ref={scrollRef}>
         <div
           className="day-schedule-grid"
           style={{ gridTemplateColumns: `76px repeat(${columns.length}, minmax(190px, 1fr))` }}
