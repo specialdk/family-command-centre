@@ -8896,3 +8896,12 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .day-task-drag { align-items: start; }
 .day-task-drag .drag-grip { padding-top: 2px; }
 .day-task-drag .task-when { padding-top: 2px; }
+/* A task title may wrap to two lines rather than being cut off mid-word.
+   His .day-event-task floats the kind label left, so the title flows beside
+   it and then continues underneath. */
+.day-event-block.day-event-task strong {
+  white-space: normal;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.25;
+}

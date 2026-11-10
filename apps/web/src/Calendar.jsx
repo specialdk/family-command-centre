@@ -276,7 +276,7 @@ function MonthView({ cursor, onDay, onPick, onAdd, onOpen }) {
                   key={e.id}
                   className={`month-calendar-item ${personClass(e.member)} ${e.isTask ? "is-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
                   onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
-                  title={e.isTask ? "Tick it off" : e.title}
+                  title={e.isTask ? `${e.title} — click to tick off` : e.title}
                 >
                   <span className="month-item-time">{e.allDay ? "all day" : hhmm(new Date(e.startsAt))}</span>
                   <span className="person-dot" />
@@ -313,7 +313,7 @@ function WeekView({ cursor, onDay, onAdd, onPick, onOpen }) {
                 key={e.id} type="button"
                 className={`calendar-card ${personClass(e.member)} ${e.isTask ? "task-event" : ""} ${e.recurrenceRule ? "routine" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
                 onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
-                title={e.isTask ? "Tick it off" : e.title}
+                title={e.isTask ? `${e.title} — click to tick off` : e.title}
               >
                 {e.isTask && <span className="event-kind"><i />{e.status === "DONE" ? "Done" : "To do"}</span>}
                 <span className="event-time">{e.allDay ? "All day" : hhmm(new Date(e.startsAt))}</span>
@@ -422,14 +422,17 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
               {forDay.filter((e) => (e.memberId ?? null) === (m?.id ?? null)).map((e) => {
                 const s = new Date(e.startsAt), t = new Date(e.endsAt);
                 const top = e.allDay ? 0 : minutesInto(s);
-                const height = e.allDay ? 28 : Math.max(30, (t - s) / 60000);
+                /* A 30-minute task is a 30px block - too short to read a name in.
+                   Short items get a visual floor while keeping their real
+                   duration; the same compromise every calendar makes. */
+                const height = e.allDay ? 28 : Math.max(e.isTask ? 46 : 30, (t - s) / 60000);
                 return (
                   <div
                     key={e.id}
                     className={`day-event-block ${personClass(e.member)} ${e.isTask ? "day-event-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
                     style={{ top, height }}
                     onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
-                    title={e.isTask ? "Tick it off" : e.title}
+                    title={e.isTask ? `${e.title} — click to tick off` : e.title}
                   >
                     <span>{e.isTask ? (e.status === "DONE" ? "Done" : "To do") : e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
                     <strong>{e.title}</strong>
