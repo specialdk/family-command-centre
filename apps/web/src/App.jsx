@@ -159,6 +159,11 @@ export default function App() {
   const doneTasks = useMemo(() => (data?.tasks || []).filter((t) => t.status === "DONE" && mine(t)), [data, viewer, everyone]);
   const myChores  = useMemo(() => (data?.chores || []).filter(mine), [data, viewer, everyone]);
   const scopedEvents = useMemo(() => (data?.events || []).filter(mine), [data, viewer, everyone]);
+  /* Tasks and routines both land on the calendar when they have a time. */
+  const scheduled = useMemo(
+    () => [...(data?.tasks || []), ...(data?.chores || [])].filter(mine),
+    [data, viewer, everyone]
+  );
 
   /* A notice with no member is for the whole family. Unread is per person,
      which is what lets the card say "everyone is up to date". */
@@ -300,8 +305,9 @@ export default function App() {
           )}
           {tab === "calendar" && (
             <Calendar
-              events={scopedEvents} members={data.members} calendars={data.calendars || []}
+              events={scopedEvents} tasks={scheduled} members={data.members} calendars={data.calendars || []}
               viewer={viewer} onCreate={createEvent} onUpdate={updateEvent} onDelete={deleteEvent}
+              onToggleTask={(t) => (t.kind && t.kind !== "TASK") ? toggleChore(t) : toggleTask(t)}
             />
           )}
           {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} />}

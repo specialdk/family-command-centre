@@ -31,7 +31,7 @@ function monthMatrix(cursor) {
   return Array.from({ length: 42 }, (_, i) => addDays(start, i));
 }
 
-export default function Calendar({ events, members, calendars, viewer, onCreate, onUpdate, onDelete }) {
+export default function Calendar({ events, tasks = [], members, calendars, viewer, onCreate, onUpdate, onDelete, onToggleTask }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [view, setView]     = useState("week");
   const [hidden, setHidden] = useState(() => new Set());
@@ -43,9 +43,24 @@ export default function Calendar({ events, members, calendars, viewer, onCreate,
   /* A repeating event is one row with a rule; the views need the actual
      occurrences. Expanded over a window wide enough for any view, so paging
      a week or a month needs no refetch. */
+  /* A task with a scheduledFor belongs on the calendar: "clean the shed,
+     Saturday 9am" is a thing happening at a time. It is given a start and an
+     end so it can sit in the grid, then goes through the same expansion -
+     chores carry recurrence rules too. */
+  const taskItems = useMemo(() => tasks
+    .filter((t) => t.scheduledFor)
+    .map((t) => {
+      const s = new Date(t.scheduledFor);
+      return {
+        ...t, isTask: true,
+        startsAt: t.scheduledFor,
+        endsAt: new Date(s.getTime() + (t.durationMins || 30) * 60000).toISOString()
+      };
+    }), [tasks]);
+
   const occurrences = useMemo(
-    () => expandEvents(events, addDays(cursor, -45), addDays(cursor, 75)),
-    [events, cursor]
+    () => expandEvents([...events, ...taskItems], addDays(cursor, -45), addDays(cursor, 75)),
+    [events, taskItems, cursor]
   );
   const visible = useMemo(() => occurrences.filter((e) => !hidden.has(keyOf(e))), [occurrences, hidden]);
   const onDay   = (d) => visible.filter((e) => sameDay(new Date(e.startsAt), d))
@@ -82,6 +97,7 @@ export default function Calendar({ events, members, calendars, viewer, onCreate,
      "Busy" never carried its real title, so editing it here would overwrite
      that title with the placeholder. Refuse, and say why. */
   const openEdit = (e) => {
+    if (e.isTask) return onToggleTask?.(e);
     if (e.busy) return setNotice(`"${e.title}" is on a private calendar — it can only be changed where it lives.`);
     setNotice("");
     /* A repeating event is one row. Editing any occurrence edits the series,
@@ -227,8 +243,12 @@ function MonthView({ cursor, onDay, onPick, onAdd, onOpen }) {
             <div className="month-cell-date" onClick={() => onPick(d)}>{d.getDate()}</div>
             <div className="month-items">
               {items.slice(0, 3).map((e) => (
-                <button key={e.id} className={`month-calendar-item ${personClass(e.member)}`}
-                        onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}>
+                <button
+                  key={e.id}
+                  className={`month-calendar-item ${personClass(e.member)} ${e.isTask ? "is-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
+                  onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
+                  title={e.isTask ? "Tick it off" : e.title}
+                >
                   <span className="month-item-time">{e.allDay ? "all day" : hhmm(new Date(e.startsAt))}</span>
                   <span className="person-dot" />
                   <span className="truncate">{e.title}</span>
@@ -260,8 +280,13 @@ function WeekView({ cursor, onDay, onAdd, onPick, onOpen }) {
           </header>
           <div className="day-content" onDoubleClick={() => onAdd(d)}>
             {onDay(d).map((e) => (
-              <button key={e.id} type="button" className={`calendar-card ${personClass(e.member)}`}
-                      onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}>
+              <button
+                key={e.id} type="button"
+                className={`calendar-card ${personClass(e.member)} ${e.isTask ? "task-event" : ""} ${e.recurrenceRule ? "routine" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
+                onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
+                title={e.isTask ? "Tick it off" : e.title}
+              >
+                {e.isTask && <span className="event-kind"><i />{e.status === "DONE" ? "Done" : "To do"}</span>}
                 <span className="event-time">{e.allDay ? "All day" : hhmm(new Date(e.startsAt))}</span>
                 {/* h3, not strong: Rhian styled .calendar-card h3 as the title block. */}
                 <h3>{e.title}</h3>
@@ -327,13 +352,14 @@ function DayView({ cursor, columns, events, onAdd, onOpen }) {
                 return (
                   <div
                     key={e.id}
-                    className={`day-event-block ${personClass(e.member)}`}
+                    className={`day-event-block ${personClass(e.member)} ${e.isTask ? "day-event-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
                     style={{ top, height }}
                     onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
+                    title={e.isTask ? "Tick it off" : e.title}
                   >
-                    <span>{e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
+                    <span>{e.isTask ? (e.status === "DONE" ? "Done" : "To do") : e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
                     <strong>{e.title}</strong>
-                    {!e.allDay && <small>{hhmm(s)} – {hhmm(t)}{e.location ? ` · ${e.location}` : ""}</small>}
+                    {!e.allDay && !e.isTask && <small>{hhmm(s)} – {hhmm(t)}{e.location ? ` · ${e.location}` : ""}</small>}
                   </div>
                 );
               })}
