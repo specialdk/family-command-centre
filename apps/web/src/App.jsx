@@ -113,6 +113,14 @@ export default function App() {
     await api("/api/events", { method: "POST", body: JSON.stringify(payload) });
     await load();
   };
+  const updateEvent = async (id, payload) => {
+    await api(`/api/events/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+    await load();
+  };
+  const deleteEvent = async (id) => {
+    await api(`/api/events/${id}`, { method: "DELETE" });
+    await load();
+  };
 
   const toggleShopping = (i) => mutate(() => api(`/api/shopping/${i.id}`, {
     method: "PATCH", body: JSON.stringify({ checked: !i.checked })
@@ -252,7 +260,7 @@ export default function App() {
           {tab === "calendar" && (
             <Calendar
               events={scopedEvents} members={data.members} calendars={data.calendars || []}
-              viewer={viewer} onCreate={createEvent}
+              viewer={viewer} onCreate={createEvent} onUpdate={updateEvent} onDelete={deleteEvent}
             />
           )}
           {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} />}

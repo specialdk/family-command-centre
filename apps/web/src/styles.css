@@ -8733,3 +8733,21 @@ input[type=date],input[type=time] {
 .day-person-header.person-family { color: var(--family); }
 .day-person-header .person-dot { width: 10px; height: 10px; background: currentColor; flex: none; }
 .day-person-header strong { color: var(--ink); font-size: 15px; }
+
+/* Edit/delete affordances on the event sheet */
+.calendar-notice {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  z-index: 60; cursor: pointer; max-width: min(520px, 90vw);
+  box-shadow: 0 14px 40px #1f27371f;
+}
+.danger-ghost, .danger-button {
+  border-radius: 10px; min-height: 44px; padding: 0 16px;
+  font-weight: 800; cursor: pointer; font-size: 14px;
+}
+.danger-ghost { border: 0; background: transparent; color: #b4524f; margin-right: auto; }
+.danger-ghost:hover { background: #fdf0ef; }
+.danger-button { border: 0; background: #c2534f; color: #fff; }
+.danger-button:disabled { opacity: .6; cursor: default; }
+.sheet-confirm { margin-right: auto; align-self: center; font-size: 14px; font-weight: 800; color: #8d4b48; }
+/* Week cards are buttons now, so reset the button chrome. */
+button.calendar-card { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid; cursor: pointer; font: inherit; }

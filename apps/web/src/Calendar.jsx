@@ -30,11 +30,12 @@ function monthMatrix(cursor) {
   return Array.from({ length: 42 }, (_, i) => addDays(start, i));
 }
 
-export default function Calendar({ events, members, calendars, viewer, onCreate }) {
+export default function Calendar({ events, members, calendars, viewer, onCreate, onUpdate, onDelete }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [view, setView]     = useState("week");
   const [hidden, setHidden] = useState(() => new Set());
   const [draft, setDraft]   = useState(null);
+  const [notice, setNotice] = useState("");
 
   const keyOf   = (e) => e.memberId ?? "family";
   const visible = useMemo(() => events.filter((e) => !hidden.has(keyOf(e))), [events, hidden]);
@@ -66,6 +67,20 @@ export default function Calendar({ events, members, calendars, viewer, onCreate 
 
   const openDraft = (date, startMin = 9 * 60, memberId = viewer?.id ?? null) =>
     setDraft({ date: startOfDay(date), startMin, endMin: startMin + 60, memberId, title: "", location: "", allDay: false });
+
+  /* Opening an existing one. An event that reached the browser reduced to
+     "Busy" never carried its real title, so editing it here would overwrite
+     that title with the placeholder. Refuse, and say why. */
+  const openEdit = (e) => {
+    if (e.busy) return setNotice(`"${e.title}" is on a private calendar — it can only be changed where it lives.`);
+    const s = new Date(e.startsAt), t = new Date(e.endsAt);
+    const end = sameDay(s, t) ? minutesInto(t) : 24 * 60 - 1;
+    setNotice("");
+    setDraft({
+      id: e.id, date: startOfDay(s), startMin: minutesInto(s), endMin: end,
+      memberId: e.memberId ?? null, title: e.title, location: e.location || "", allDay: !!e.allDay
+    });
+  };
 
   return (
     <div className="calendar-layout">
@@ -119,17 +134,19 @@ export default function Calendar({ events, members, calendars, viewer, onCreate 
           </button>
         </div>
 
-        {view === "month" && <MonthView cursor={cursor} onDay={onDay} members={members}
+        {view === "month" && <MonthView cursor={cursor} onDay={onDay} onOpen={openEdit}
                                         onPick={(d) => { setCursor(d); setView("day"); }} onAdd={openDraft} />}
-        {view === "week"  && <WeekView  cursor={cursor} onDay={onDay} onAdd={openDraft}
+        {view === "week"  && <WeekView  cursor={cursor} onDay={onDay} onAdd={openDraft} onOpen={openEdit}
                                         onPick={(d) => { setCursor(d); setView("day"); }} />}
-        {view === "day"   && <DayView   cursor={cursor} columns={columns} events={visible} onAdd={openDraft} />}
+        {view === "day"   && <DayView   cursor={cursor} columns={columns} events={visible} onAdd={openDraft} onOpen={openEdit} />}
       </section>
 
+      {notice && <div className="alert calendar-notice" onClick={() => setNotice("")}>{notice}</div>}
+
       {draft && (
-        <EventDraft
+        <EventSheet
           draft={draft} setDraft={setDraft} members={members} calendars={calendars}
-          onCancel={() => setDraft(null)} onCreate={onCreate}
+          onCancel={() => setDraft(null)} onCreate={onCreate} onUpdate={onUpdate} onDelete={onDelete}
         />
       )}
     </div>
@@ -174,7 +191,7 @@ function MiniCal({ cursor, onPick, events }) {
 
 /* ------------------------------------------------------------- month view */
 
-function MonthView({ cursor, onDay, onPick, onAdd }) {
+function MonthView({ cursor, onDay, onPick, onAdd, onOpen }) {
   const cells = monthMatrix(cursor);
   const today = startOfDay(new Date());
   return (
@@ -191,7 +208,8 @@ function MonthView({ cursor, onDay, onPick, onAdd }) {
             <div className="month-cell-date" onClick={() => onPick(d)}>{d.getDate()}</div>
             <div className="month-items">
               {items.slice(0, 3).map((e) => (
-                <button key={e.id} className={`month-calendar-item ${personClass(e.member)}`} onClick={() => onPick(d)}>
+                <button key={e.id} className={`month-calendar-item ${personClass(e.member)}`}
+                        onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}>
                   <span className="month-item-time">{e.allDay ? "all day" : hhmm(new Date(e.startsAt))}</span>
                   <span className="person-dot" />
                   <span className="truncate">{e.title}</span>
@@ -210,7 +228,7 @@ function MonthView({ cursor, onDay, onPick, onAdd }) {
 
 /* -------------------------------------------------------------- week view */
 
-function WeekView({ cursor, onDay, onAdd, onPick }) {
+function WeekView({ cursor, onDay, onAdd, onPick, onOpen }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cursor), i));
   const today = startOfDay(new Date());
   return (
@@ -223,14 +241,15 @@ function WeekView({ cursor, onDay, onAdd, onPick }) {
           </header>
           <div className="day-content" onDoubleClick={() => onAdd(d)}>
             {onDay(d).map((e) => (
-              <div key={e.id} className={`calendar-card ${personClass(e.member)}`}>
+              <button key={e.id} type="button" className={`calendar-card ${personClass(e.member)}`}
+                      onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}>
                 <span className="event-time">{e.allDay ? "All day" : hhmm(new Date(e.startsAt))}</span>
                 {/* h3, not strong: Rhian styled .calendar-card h3 as the title block. */}
                 <h3>{e.title}</h3>
                 {(e.member || e.location) && (
                   <span className="event-owner">{[e.member?.name, e.location].filter(Boolean).join(" · ")}</span>
                 )}
-              </div>
+              </button>
             ))}
             {!onDay(d).length && <div className="week-empty">—</div>}
           </div>
@@ -242,7 +261,7 @@ function WeekView({ cursor, onDay, onAdd, onPick }) {
 
 /* --------------------------------------------------------------- day view */
 
-function DayView({ cursor, columns, events, onAdd }) {
+function DayView({ cursor, columns, events, onAdd, onOpen }) {
   const forDay = events.filter((e) => sameDay(new Date(e.startsAt), cursor));
   const hours = Array.from({ length: 24 }, (_, h) => h);
 
@@ -291,7 +310,7 @@ function DayView({ cursor, columns, events, onAdd }) {
                     key={e.id}
                     className={`day-event-block ${personClass(e.member)}`}
                     style={{ top, height }}
-                    onClick={(ev) => ev.stopPropagation()}
+                    onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
                   >
                     <span>{e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
                     <strong>{e.title}</strong>
@@ -313,9 +332,11 @@ function DayView({ cursor, columns, events, onAdd }) {
 const toTime = (mins) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 const fromTime = (s) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
 
-function EventDraft({ draft, setDraft, members, calendars, onCancel, onCreate }) {
-  const [busy, setBusy] = useState(false);
+function EventSheet({ draft, setDraft, members, calendars, onCancel, onCreate, onUpdate, onDelete }) {
+  const [busy, setBusy]   = useState(false);
   const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const editing = Boolean(draft.id);
   const set = (patch) => setDraft({ ...draft, ...patch });
 
   const submit = async (e) => {
@@ -324,27 +345,33 @@ function EventDraft({ draft, setDraft, members, calendars, onCancel, onCreate })
     if (!draft.allDay && draft.endMin <= draft.startMin) return setError("It has to finish after it starts.");
     setBusy(true); setError("");
     const at = (mins) => new Date(draft.date.getTime() + mins * 60000).toISOString();
-    // Prefer the person's own calendar; fall back to the shared family one.
     const cal = calendars?.find((c) => c.memberId === draft.memberId)
              ?? calendars?.find((c) => !c.memberId);
+    const payload = {
+      title: draft.title.trim(),
+      location: draft.location.trim() || null,
+      memberId: draft.memberId || null,
+      calendarId: cal?.id,
+      allDay: draft.allDay,
+      startsAt: draft.allDay ? at(0) : at(draft.startMin),
+      endsAt:   draft.allDay ? at(23 * 60 + 59) : at(draft.endMin)
+    };
     try {
-      await onCreate({
-        title: draft.title.trim(),
-        location: draft.location.trim() || null,
-        memberId: draft.memberId || null,
-        calendarId: cal?.id,
-        allDay: draft.allDay,
-        startsAt: draft.allDay ? at(0) : at(draft.startMin),
-        endsAt:   draft.allDay ? at(23 * 60 + 59) : at(draft.endMin)
-      });
+      editing ? await onUpdate(draft.id, payload) : await onCreate(payload);
       onCancel();
     } catch (err) { setError(err.message); setBusy(false); }
+  };
+
+  const remove = async () => {
+    setBusy(true); setError("");
+    try { await onDelete(draft.id); onCancel(); }
+    catch (err) { setError(err.message); setBusy(false); setConfirming(false); }
   };
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <form className="event-detail-sheet sheet-card" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <p className="eyebrow">NEW ITEM</p>
+        <p className="eyebrow">{editing ? "EDIT" : "NEW ITEM"}</p>
         <h2>{fmt(draft.date, { weekday: "long", day: "numeric", month: "long" })}</h2>
 
         <label>What is it?
@@ -382,8 +409,23 @@ function EventDraft({ draft, setDraft, members, calendars, onCancel, onCreate })
         {error && <div className="alert">{error}</div>}
 
         <div className="sheet-actions">
-          <button type="button" className="chip-button" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="calendar-add-item" disabled={busy}>{busy ? "Adding…" : "Add to calendar"}</button>
+          {editing && (confirming ? (
+            <>
+              <span className="sheet-confirm">Delete it for everyone?</span>
+              <button type="button" className="chip-button" onClick={() => setConfirming(false)}>Keep it</button>
+              <button type="button" className="danger-button" onClick={remove} disabled={busy}>Yes, delete</button>
+            </>
+          ) : (
+            <button type="button" className="danger-ghost" onClick={() => setConfirming(true)}>Delete</button>
+          ))}
+          {!confirming && (
+            <>
+              <button type="button" className="chip-button" onClick={onCancel}>Cancel</button>
+              <button type="submit" className="calendar-add-item" disabled={busy}>
+                {busy ? "Saving…" : editing ? "Save changes" : "Add to calendar"}
+              </button>
+            </>
+          )}
         </div>
       </form>
     </div>

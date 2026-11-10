@@ -199,6 +199,58 @@ app.post("/api/events", async (req, res) => {
   res.status(201).json(event);
 });
 
+app.patch("/api/events/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await prisma.event.findUnique({ where: { id }, include: { calendar: true } });
+  if (!existing) return res.status(404).json({ error: "No such event" });
+
+  // An event the viewer only ever sees as "Busy" must not be editable: its
+  // real title never reached the browser, so a save would overwrite it with
+  // the placeholder. Becomes a server-side identity check once auth is real.
+  const effective = existing.visibility === "FULL"
+    ? (existing.calendar?.defaultVisibility || "FULL")
+    : existing.visibility;
+  if (effective !== "FULL") return res.status(403).json({ error: "This one is private and cannot be edited here" });
+
+  const b = req.body || {};
+  const data = {};
+  if (b.title !== undefined)      data.title = String(b.title).trim();
+  if (b.location !== undefined)   data.location = b.location ? String(b.location) : null;
+  if (b.notes !== undefined)      data.notes = b.notes ? String(b.notes) : null;
+  if (b.startsAt !== undefined)   data.startsAt = new Date(b.startsAt);
+  if (b.endsAt !== undefined)     data.endsAt = new Date(b.endsAt);
+  if (b.allDay !== undefined)     data.allDay = Boolean(b.allDay);
+  if (b.memberId !== undefined)   data.memberId = b.memberId ? Number(b.memberId) : null;
+  if (b.calendarId !== undefined) data.calendarId = Number(b.calendarId);
+
+  if (data.startsAt && data.endsAt && data.endsAt <= data.startsAt)
+    return res.status(400).json({ error: "It has to finish after it starts" });
+
+  const event = await prisma.event.update({ where: { id }, data, include: { member: true, calendar: true } });
+  await prisma.activityLog.create({
+    data: { action: "event.update", entity: "Event", entityId: id, memberId: event.memberId }
+  }).catch(() => {});
+  res.json(event);
+});
+
+app.delete("/api/events/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await prisma.event.findUnique({ where: { id }, include: { calendar: true } });
+  if (!existing) return res.status(404).json({ error: "No such event" });
+  const effective = existing.visibility === "FULL"
+    ? (existing.calendar?.defaultVisibility || "FULL")
+    : existing.visibility;
+  if (effective !== "FULL") return res.status(403).json({ error: "This one is private and cannot be deleted here" });
+
+  // A series parent takes its instances with it, which is what the schema's
+  // onDelete: Cascade already does.
+  await prisma.event.delete({ where: { id } });
+  await prisma.activityLog.create({
+    data: { action: "event.delete", entity: "Event", entityId: id, detail: { title: existing.title } }
+  }).catch(() => {});
+  res.json({ ok: true });
+});
+
 app.post("/api/chores", async (req, res) => {
   const { title, recurrenceRule, memberId, listId } = req.body || {};
   if (!title) return res.status(400).json({ error: "Chore title is required" });
