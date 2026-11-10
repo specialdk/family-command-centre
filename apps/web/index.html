@@ -2,8 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#163c2d" />
+    <!-- viewport-fit=cover lets the page reach under the notch and the home
+         indicator; the bottom bar then pads itself back out with
+         env(safe-area-inset-bottom) rather than sitting under the indicator. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Matches --paper, the colour at the top of every page. The old value
+         was a dark green left over from the skeleton. -->
+    <meta name="theme-color" content="#f4faff" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180.png" />
+    <link rel="icon" href="/icon-192.png" type="image/png" />
+    <!-- iOS reads these rather than the manifest for home-screen behaviour. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Family" />
     <title>Family Command Centre</title>
   </head>
   <body>

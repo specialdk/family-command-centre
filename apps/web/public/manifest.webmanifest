@@ -1,0 +1,21 @@
+{
+  "name": "Family Command Centre",
+  "short_name": "Family",
+  "description": "One place for the family calendar, tasks, meals and shopping.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4faff",
+  "theme_color": "#f4faff",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Today", "url": "/?tab=today" },
+    { "name": "Calendar", "url": "/?tab=calendar" }
+  ]
+}

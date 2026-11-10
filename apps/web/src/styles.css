@@ -8973,7 +8973,10 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   /* His media query turns `nav` into a row but not .sortable-nav inside it,
      and his fixed button widths (74px, and 80x88 for Today) overflow a
      390px phone. Let the five share the width instead. */
-  .nav-rail { padding: 6px 8px; gap: 6px; }
+  /* Installed to the home screen the page runs edge to edge, so the bar
+     would sit under the iPhone's home indicator. env() is 0 in a browser
+     tab and on Android, so this costs nothing anywhere else. */
+  .nav-rail { padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); gap: 6px; }
   .nav-rail nav { width: 100%; }
   .sortable-nav {
     flex-direction: row; width: 100%;
@@ -9012,7 +9015,7 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   .nav-rail nav .nav-primary small, .nav-more small { display: block; }
 
   /* Clear the bottom bar. */
-  .page-body { padding-bottom: 92px; }
+  .page-body { padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
   /* Our calendar nav column stacks above the panel rather than beside it. */
   .calendar-layout { grid-template-columns: 1fr; }
   .calendar-nav { position: static; }
@@ -9020,8 +9023,11 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 }
 
 @media (max-width: 700px) {
-  .page-body { padding: 16px 13px 92px; }
-  .topbar { padding: 12px 14px; gap: 10px; flex-wrap: wrap; }
+  .page-body { padding: 16px 13px calc(92px + env(safe-area-inset-bottom, 0px)); }
+  .topbar {
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 12px;
+    gap: 10px; flex-wrap: wrap;
+  }
   .topbar h1 { font-size: 22px; }
   .status-strip { padding: 7px 14px; font-size: 14px; }
 
