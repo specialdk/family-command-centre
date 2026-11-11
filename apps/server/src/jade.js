@@ -2,14 +2,14 @@ import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { reduceEvents, WITH_VISIBILITY } from "./visibility.js";
 
-/* Sol — the family's assistant.
+/* Jade — the family's assistant.
 
-   The shape of this file follows one rule: Sol answers on its own, but it
+   The shape of this file follows one rule: Jade answers on its own, but it
    never changes anything on its own. Reading tools run inside the model loop
    so a question is answered in a single turn. Writing tools do not run at
    all - they come back as a proposal for a person to approve, which is what
    Rhian's own `.proposal-card` was designed for. Approving is a second,
-   deliberate request to /api/sol/apply.
+   deliberate request to /api/jade/apply.
 
    That means a mistake by the model is a card someone declines, not a notice
    sent to four people or an event moved out from under them. */
@@ -132,7 +132,7 @@ function zonedToUtc(dateStr, timeStr, tz) {
 const todayIn = (tz) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()); // YYYY-MM-DD
 
-export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic }) {
+export function createJadeRouter({ prisma, notify, whenLabel, familyTz, anthropic }) {
   const router = express.Router();
   /* `anthropic` is injectable so the tests can run the whole route - tools,
      proposals, applying - without a key or a network call. */
@@ -151,7 +151,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
 
   /* due and scheduled are different things and the family treats them that
      way - "do it Saturday morning" is not "due Saturday". Say which is which
-     every time, so Sol never has to guess. */
+     every time, so Jade never has to guess. */
   const taskWhen = (t) => [
     t.scheduledFor ? `on the calendar ${stamp(t.scheduledFor, false)}` : null,
     t.dueAt ? `due ${stamp(t.dueAt, true)}` : null
@@ -164,7 +164,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
     return all.find((m) => firstName(m.name) === want) || null;
   }
 
-  /* What Sol is told about the family before it answers anything. Deliberately
+  /* What Jade is told about the family before it answers anything. Deliberately
      small: a week of calendar and the open tasks, not the whole database. The
      cost of every single turn is set here, so it stays a summary. */
   async function snapshot() {
@@ -190,7 +190,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
 
     /* A task with a scheduledFor is drawn on the calendar as a TO DO block,
        so it is part of the week whether or not it is also due then. Leaving
-       them out of the diary was why Sol answered about due dates when it was
+       them out of the diary was why Jade answered about due dates when it was
        asked what was on. */
     const scheduled = tasks.filter((t) =>
       t.scheduledFor && t.scheduledFor >= from && t.scheduledFor < to);
@@ -224,7 +224,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
 
   function systemPrompt(s) {
     return [
-      "You are Sol, the assistant inside a family's command centre app.",
+      "You are Jade, the assistant inside a family's command centre app.",
       `Today is ${s.today} and the family lives in ${familyTz}.`,
       `The family: ${s.who}.`,
       "",
@@ -302,7 +302,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
       ).join("\n");
     }
 
-    return `Sol has no tool called ${name}.`;
+    return `Jade has no tool called ${name}.`;
   }
 
   /* Turned into the three lines of Rhian's proposal card: the uppercase
@@ -335,12 +335,12 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
   router.post("/", async (req, res) => {
     if (!client) {
       return res.status(503).json({
-        error: "Sol is not connected yet — ANTHROPIC_API_KEY is not set on the server."
+        error: "Jade is not connected yet — ANTHROPIC_API_KEY is not set on the server."
       });
     }
 
     const message = String(req.body?.message || "").trim();
-    if (!message) return res.status(400).json({ error: "Say something to Sol first." });
+    if (!message) return res.status(400).json({ error: "Say something to Jade first." });
 
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [];
     const messages = [...history, { role: "user", content: message }];
@@ -391,8 +391,8 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
         history: [...messages.filter((m) => typeof m.content === "string"), ].slice(-8)
       });
     } catch (e) {
-      console.error("Sol failed:", e.message);
-      res.status(502).json({ error: "Sol could not answer just now." });
+      console.error("Jade failed:", e.message);
+      res.status(502).json({ error: "Jade could not answer just now." });
     }
   });
 
@@ -421,7 +421,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
         });
         await notify({
           title: `${task.title} was added to the list`,
-          body: member ? `For ${member.name}. Added through Sol.` : "Added through Sol.",
+          body: member ? `For ${member.name}. Added through Jade.` : "Added through Jade.",
           kind: "CHANGE", authorId: actorId, entity: "TASK", entityId: task.id
         });
         return res.json({ ok: true, applied: "add_task", task });
@@ -451,7 +451,7 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
         });
         await notify({
           title: `${event.title} is on for ${whenLabel(event.startsAt, event.allDay)}`,
-          body: member ? `${member.name}'s. Added through Sol.` : "Added through Sol.",
+          body: member ? `${member.name}'s. Added through Jade.` : "Added through Jade.",
           kind: "CHANGE", authorId: actorId, entity: "EVENT", entityId: event.id
         });
         return res.json({ ok: true, applied: "schedule_event", event });
@@ -466,9 +466,9 @@ export function createSolRouter({ prisma, notify, whenLabel, familyTz, anthropic
         return res.json({ ok: true, applied: "notify_family", notice });
       }
 
-      res.status(400).json({ error: `Sol cannot apply ${tool}.` });
+      res.status(400).json({ error: `Jade cannot apply ${tool}.` });
     } catch (e) {
-      console.error("Sol apply failed:", e.message);
+      console.error("Jade apply failed:", e.message);
       res.status(500).json({ error: "That could not be applied." });
     }
   });

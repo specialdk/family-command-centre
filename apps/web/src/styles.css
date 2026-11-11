@@ -9033,7 +9033,7 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 
   /* The scope switch matters more on a phone than the settings cog. */
   .settings-button { display: none; }
-  /* "Talk to Sol" took a whole row to itself on every page - roughly 75px of
+  /* "Talk to Jade" took a whole row to itself on every page - roughly 75px of
      a 664px phone, repeated on Today, Calendar, Tasks and the rest. Beside
      the bell it costs nothing, and his .voice-mark already reads as "speak
      to this". font-size:0 hides the bare text node; the mark is sized in
@@ -9167,7 +9167,7 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .says-name input:focus { outline: none; border-color: #8299c7; box-shadow: 0 0 0 3px #5071b41c; }
 .says-name small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
 
-/* Sol answers a "what's on" question with one line per item. Without this
+/* Jade answers a "what's on" question with one line per item. Without this
    those line breaks collapse and the day arrives as one paragraph. */
 .assistant-reply { white-space: pre-line; text-align: left; }
 

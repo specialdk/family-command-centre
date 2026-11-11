@@ -1,9 +1,9 @@
 /* What an event is allowed to look like once it leaves the server.
 
    This lives on its own because it has to be the only copy. The dashboard
-   had its own inline version and Sol read the database directly, which meant
-   asking Sol was a way round the reduction: the browser showed "Busy — Rhian"
-   while Sol read out the real title. Anything that sends an event anywhere
+   had its own inline version and Jade read the database directly, which meant
+   asking Jade was a way round the reduction: the browser showed "Busy — Rhian"
+   while Jade read out the real title. Anything that sends an event anywhere
    goes through here.
 
    FULL    - as written.

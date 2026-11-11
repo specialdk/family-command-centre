@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Calendar from "./Calendar.jsx";
-import Sol from "./Sol.jsx";
+import Jade from "./Jade.jsx";
 import { canSpeak, primeSpeech, speak } from "./voice.js";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
@@ -80,7 +80,7 @@ export default function App() {
   const [composing, setComposing] = useState(false);
   const [history, setHistory]     = useState(null);   // null = closed
   const [moreOpen, setMoreOpen]   = useState(false);
-  const [solOpen, setSolOpen]     = useState(false);
+  const [jadeOpen, setJadeOpen]     = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -302,9 +302,16 @@ export default function App() {
               onClick={() => setTab(tab === SETTINGS.key ? "today" : SETTINGS.key)}
               title="Settings"
             >⚙</button>
-            <button className="voice-button" onClick={() => setSolOpen(true)} title="Talk to Sol">
+            {/* primeSpeech must run inside this tap: Safari will not speak later
+                unless the engine was woken by a real gesture, and Jade now
+                starts listening as soon as the sheet opens. */}
+            <button
+              className="voice-button"
+              onClick={() => { primeSpeech(); setJadeOpen(true); }}
+              title="Talk to Jade"
+            >
               <span className="voice-mark"><i /><i /><i /><i /></span>
-              Talk to Sol
+              Talk to Jade
             </button>
             <div className="parent-stack">
               {parents.map((p) => <span key={p.id}>{p.initials?.[0] || "?"}</span>)}
@@ -372,11 +379,11 @@ export default function App() {
           onSignOut={logout}
         />
       )}
-      {solOpen && (
-        <Sol
+      {jadeOpen && (
+        <Jade
           viewer={viewer}
           members={data.members}
-          onClose={() => setSolOpen(false)}
+          onClose={() => setJadeOpen(false)}
           onChanged={load}
         />
       )}
@@ -682,7 +689,7 @@ function Settings({ members, tasks, onSaveSound }) {
   const [phone, setPhone] = useState(() => {
     try { return window.matchMedia("(max-width: 700px)").matches; } catch { return false; }
   });
-  const [sol, setSol] = useState(null);
+  const [jade, setJade] = useState(null);
 
   useEffect(() => {
     try {
@@ -695,7 +702,7 @@ function Settings({ members, tasks, onSaveSound }) {
 
   useEffect(() => {
     let alive = true;
-    api("/api/sol/status").then((s) => alive && setSol(s)).catch(() => alive && setSol({ connected: false }));
+    api("/api/jade/status").then((s) => alive && setJade(s)).catch(() => alive && setJade({ connected: false }));
     return () => { alive = false; };
   }, []);
 
@@ -719,7 +726,7 @@ function Settings({ members, tasks, onSaveSound }) {
           <span className="count-badge">{members.length}</span>
         </div>
         <p className="connections-intro" style={{ margin: "4px 0 16px", textAlign: "left", maxWidth: "none" }}>
-          Who is in the household, and how each name is said when Sol speaks.
+          Who is in the household, and how each name is said when Jade speaks.
         </p>
         <Family members={members} tasks={tasks} onSaveSound={onSaveSound} />
       </section>
@@ -728,9 +735,9 @@ function Settings({ members, tasks, onSaveSound }) {
         <div className="section-title"><h2>Connections</h2></div>
         <div className="connection-list" style={{ display: "grid", gap: 10, marginTop: 14 }}>
           <ConnectionRow
-            icon="✦" name="Sol"
-            detail={sol?.connected ? `Answering on ${sol.model}` : "No API key set on the server"}
-            state={sol === null ? "pending" : sol.connected ? "connected" : "off"}
+            icon="✦" name="Jade"
+            detail={jade?.connected ? `Answering on ${jade.model}` : "No API key set on the server"}
+            state={jade === null ? "pending" : jade.connected ? "connected" : "off"}
           />
           <ConnectionRow
             icon="M" name="Microsoft 365"
@@ -788,7 +795,7 @@ function Family({ members, tasks, onSaveSound }) {
 
 /* Spelling a name the way it sounds is the only way to make an English
    speech engine say it right - Rhian is "Ryan", Danielle is "Dan-eel". It
-   is used when Sol speaks and nowhere else; the screen always shows the
+   is used when Jade speaks and nowhere else; the screen always shows the
    real name. */
 function SaysName({ member, onSave }) {
   const [value, setValue] = useState(member.pronunciation || "");
@@ -804,7 +811,7 @@ function SaysName({ member, onSave }) {
   };
 
   /* You cannot tune a phonetic spelling you cannot hear. This says the box's
-     current contents through the same engine Sol uses, so the thing being
+     current contents through the same engine Jade uses, so the thing being
      judged is the thing that will be said. */
   const hear = () => {
     primeSpeech();
@@ -833,7 +840,7 @@ function SaysName({ member, onSave }) {
         {state === "saving" ? "Saving…"
           : state === "saved" ? "Saved"
           : state === "failed" ? "Didn't save"
-          : "Only used when Sol speaks"}
+          : "Only used when Jade speaks"}
       </small>
     </label>
   );

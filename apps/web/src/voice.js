@@ -84,12 +84,65 @@ export function expandDates(text) {
              (_m, day, mon) => day + (MONTHS[mon] || mon));
 }
 
+/* The Web Speech API does not tell you a voice's gender, so the only way to
+   pick one is by name. These are the female English voices the major
+   platforms actually ship, best match first: Australian before British
+   before American, because the family is Australian and a voice saying
+   "Burnside" in an American accent is its own small irritation.
+
+   Everything here is a preference, not a requirement. A device with none of
+   them falls back to any English voice and then to the browser default,
+   which is the right behaviour - a missing voice should mean a different
+   accent, never silence. */
+const FEMALE_VOICES = [
+  "Karen",                       // macOS / iOS en-AU
+  "Catherine", "Google Australian English",
+  "Microsoft Natasha", "Microsoft Hayley",
+  "Serena", "Fiona", "Moira", "Tessa",
+  "Google UK English Female", "Microsoft Libby", "Microsoft Sonia",
+  "Samantha", "Victoria", "Allison", "Ava",
+  "Google US English", "Microsoft Zira", "Microsoft Aria", "Microsoft Jenny"
+];
+
+let chosenVoice = null;
+
+export function pickVoice() {
+  if (!canSpeak) return null;
+  let voices = [];
+  try { voices = window.speechSynthesis.getVoices() || []; } catch { return null; }
+  if (!voices.length) return null;             // not loaded yet; try again later
+
+  const english = voices.filter((v) => /^en\b|^en[-_]/i.test(v.lang || ""));
+  const pool = english.length ? english : voices;
+
+  for (const want of FEMALE_VOICES) {
+    const hit = pool.find((v) => (v.name || "").toLowerCase().includes(want.toLowerCase()));
+    if (hit) return hit;
+  }
+  /* Nothing recognised. Some engines put it in the name anyway. */
+  const named = pool.find((v) => /female|woman/i.test(v.name || ""));
+  return named || pool.find((v) => /^en[-_]AU/i.test(v.lang || "")) || pool[0] || null;
+}
+
+/* getVoices() is empty until the engine has loaded them, which on Chrome
+   happens after a `voiceschanged` event rather than before first use. */
+if (canSpeak) {
+  try {
+    chosenVoice = pickVoice();
+    window.speechSynthesis.addEventListener?.("voiceschanged", () => { chosenVoice = pickVoice(); });
+  } catch { /* leave it to the default voice */ }
+}
+
+export const currentVoiceName = () => chosenVoice?.name || null;
+
 export function speak(text, { onDone, pronunciations } = {}) {
   if (!canSpeak || !text) return onDone?.();
   try {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(sayAs(expandDates(text), pronunciations));
-    u.lang = "en-AU";
+    if (!chosenVoice) chosenVoice = pickVoice();
+    if (chosenVoice) u.voice = chosenVoice;
+    u.lang = chosenVoice?.lang || "en-AU";
     u.rate = 1.02;
     u.onend = () => onDone?.();
     u.onerror = () => onDone?.();

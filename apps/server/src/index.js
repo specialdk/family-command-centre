@@ -6,7 +6,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { PrismaClient } from "@prisma/client";
-import { createSolRouter } from "./sol.js";
+import { createJadeRouter } from "./jade.js";
 import { reduceEvents } from "./visibility.js";
 
 const prisma = new PrismaClient();
@@ -146,7 +146,7 @@ app.get("/api/dashboard", async (_req, res) => {
   }));
 
   // Reduced before it ever leaves the server, so private detail never reaches
-  // the browser. The rule lives in visibility.js because Sol needs the same
+  // the browser. The rule lives in visibility.js because Jade needs the same
   // one - a second copy here is how the two drift and one of them leaks.
   const safeEvents = reduceEvents(events);
 
@@ -224,7 +224,7 @@ app.patch("/api/members/:id", async (req, res) => {
   res.json(member);
 });
 
-app.use("/api/sol", createSolRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ }));
+app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ }));
 
 app.post("/api/tasks", async (req, res) => {
   const { title, notes, listId, kind, dueAt, scheduledFor, memberId } = req.body || {};

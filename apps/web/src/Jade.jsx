@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { canListen, canSpeak, listen, primeSpeech, speak, stopSpeaking } from "./voice.js";
 
-/* Sol's sheet, built to the design already in Rhian's stylesheet rather than
+/* Jade's sheet, built to the design already in Rhian's stylesheet rather than
    invented: .assistant-sheet, the 76px .listen-orb with its listening pulse,
    .assistant-reply for the answer and .proposal-card for anything that would
    change data.
 
-   The proposal card is the whole point. Sol never writes - it drafts, and a
+   The proposal card is the whole point. Jade never writes - it drafts, and a
    person presses Add, Schedule or Send. That is his design, and it is also
    the only honest way to let a model near a shared family calendar. */
 
@@ -18,7 +18,7 @@ const api = async (path, body) => {
     body: JSON.stringify(body)
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Sol could not answer just now.");
+  if (!res.ok) throw new Error(data.error || "Jade could not answer just now.");
   return data;
 };
 
@@ -28,7 +28,7 @@ const APPLY_LABEL = {
   notify_family: "Send it to everyone"
 };
 
-export default function Sol({ viewer, members = [], onClose, onChanged }) {
+export default function Jade({ viewer, members = [], onClose, onChanged }) {
   /* name -> how it is said, for the speech engine only. */
   const pronunciations = React.useMemo(
     () => Object.fromEntries(
@@ -59,6 +59,21 @@ export default function Sol({ viewer, members = [], onClose, onChanged }) {
      where the orb is the point. */
   useEffect(() => { if (!canListen) inputRef.current?.focus(); }, []);
 
+  /* Opening this sheet is already the "I want to talk" gesture, so asking
+     for a second tap on the orb earned nothing. It starts listening by
+     itself; the orb becomes the way to stop, and typing stops it too, so the
+     microphone is never live while someone is at the keyboard. The short
+     delay lets the sheet paint first - the pulse starting on a half-drawn
+     orb reads as a glitch. */
+  const started = useRef(false);
+  useEffect(() => {
+    if (!canListen || started.current) return;
+    started.current = true;
+    const t = setTimeout(() => toggleListening(), 180);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* Leaving mid-sentence stops the voice with you. */
   useEffect(() => () => { stopRef.current?.(); stopSpeaking(); }, []);
 
@@ -69,7 +84,7 @@ export default function Sol({ viewer, members = [], onClose, onChanged }) {
     spokenRef.current = spoken;
     setBusy(true); setError(""); setDone(""); setProposal(null); setAsked(message); setHeard("");
     try {
-      const data = await api("/api/sol", { message, history });
+      const data = await api("/api/jade", { message, history });
       setReply(data.reply || "");
       setProposal(data.proposal || null);
       setHistory(data.history || []);
@@ -102,7 +117,7 @@ export default function Sol({ viewer, members = [], onClose, onChanged }) {
     if (!proposal || applying) return;
     setApplying(true); setError("");
     try {
-      await api("/api/sol/apply", { proposal, memberId: viewer?.id ?? null });
+      await api("/api/jade/apply", { proposal, memberId: viewer?.id ?? null });
       setDone(
         proposal.tool === "notify_family" ? "Sent to the family."
         : proposal.tool === "schedule_event" ? "It's on the calendar."
@@ -138,7 +153,7 @@ export default function Sol({ viewer, members = [], onClose, onChanged }) {
 
         {canListen ? (
           <button type="button" className="listen-button" onClick={toggleListening} disabled={busy}>
-            {hearing ? "Listening — tap to stop" : "Tap the circle and ask"}
+            {hearing ? "Listening — tap to stop" : "Tap the circle and ask again"}
           </button>
         ) : (
           <p className="listen-button" style={{ pointerEvents: "none" }}>
@@ -157,7 +172,7 @@ export default function Sol({ viewer, members = [], onClose, onChanged }) {
           </button>
         )}
 
-        <h2>Sol</h2>
+        <h2>Jade</h2>
 
         <div className="assistant-reply">
           {/* `done` outranks `reply`: once something has been applied, the
@@ -195,7 +210,7 @@ export default function Sol({ viewer, members = [], onClose, onChanged }) {
           <input
             ref={inputRef}
             value={asked}
-            onChange={(e) => setAsked(e.target.value)}
+            onChange={(e) => { if (hearing) stopRef.current?.(); setAsked(e.target.value); }}
             placeholder="What's on tomorrow?"
             disabled={busy}
           />
@@ -203,7 +218,7 @@ export default function Sol({ viewer, members = [], onClose, onChanged }) {
         </form>
 
         <p className="assistant-rule">
-          Sol can look at the calendar and the task list. Anything it would change,
+          Jade can look at the calendar and the task list. Anything it would change,
           it drafts for you to approve first.
         </p>
       </div>
