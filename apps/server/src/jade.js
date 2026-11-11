@@ -125,13 +125,18 @@ const REALTIME_VOICE = process.env.JADE_VOICE || "marin";
    required and additionalProperties false; half of these are genuinely
    optional - a task may have no due date, an event no location - and
    forcing them would make the model invent values to satisfy a schema. */
-const TOOLS = [...READ_TOOLS, ...WRITE_TOOLS].map((t) => ({
+const TOOL_BASE = [...READ_TOOLS, ...WRITE_TOOLS].map((t) => ({
   type: "function",
   name: t.name,
   description: t.description,
-  parameters: t.parameters,
-  strict: false
+  parameters: t.parameters
 }));
+
+/* The typed path takes `strict`; the realtime session rejects it outright -
+   "Unknown parameter: session.tools[0].strict". Same tools, two shapes, so
+   the difference is declared here rather than discovered twice. */
+const TOOLS = TOOL_BASE.map((t) => ({ ...t, strict: false }));
+const REALTIME_TOOLS = TOOL_BASE;
 
 /* ------------------------------------------------------------ timezone ---
    The family thinks in local time; the database stores UTC. Working out the
@@ -483,7 +488,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
             model: REALTIME_MODEL,
             instructions: systemPrompt(s, { spoken: true }),
             audio: { output: { voice: REALTIME_VOICE } },
-            tools: TOOLS,
+            tools: REALTIME_TOOLS,
             tool_choice: "auto"
           }
         })
@@ -647,7 +652,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
             model: REALTIME_MODEL,
             instructions: systemPrompt(s, { spoken: true }),
             audio: { output: { voice: REALTIME_VOICE } },
-            tools: TOOLS,
+            tools: REALTIME_TOOLS,
             tool_choice: "auto"
           }
         })
