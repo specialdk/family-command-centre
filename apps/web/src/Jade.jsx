@@ -103,6 +103,7 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
     setError(""); setHeard(""); setDone(""); setPhase("connecting");
     try {
       liveRef.current = await startConversation({
+        speaker: viewer?.name || null,
         onEvent: (e) => {
           if (e.kind === "said")      { setHeard(e.text); setAsked(e.text); }
           if (e.kind === "reply")     { setReply(e.text); setHeard(""); }
@@ -142,7 +143,7 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
     spokenRef.current = spoken;
     setBusy(true); setError(""); setDone(""); setProposal(null); setAsked(message); setHeard("");
     try {
-      const data = await api("/api/jade", { message, history });
+      const data = await api("/api/jade", { message, history, speaker: viewer?.name || null });
       setReply(data.reply || "");
       setProposal(data.proposal || null);
       setHistory(data.history || []);

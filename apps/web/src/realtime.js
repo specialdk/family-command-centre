@@ -43,7 +43,7 @@ function functionCallsIn(msg) {
  * onEvent gets {kind, ...} for the UI: "listening", "thinking", "speaking",
  * "said" (what the person said), "reply" (what Jade said), "proposal".
  */
-export async function startConversation({ onEvent, onError }) {
+export async function startConversation({ onEvent, onError, speaker = null }) {
   if (!canTalk) throw new Error("This browser cannot hold a conversation.");
 
   /* The microphone first: if it is refused, nothing else is worth doing, and
@@ -59,7 +59,7 @@ export async function startConversation({ onEvent, onError }) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: "{}"
+    body: JSON.stringify({ speaker })
   }).then(async (r) => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || d.error || "Could not start a conversation.");

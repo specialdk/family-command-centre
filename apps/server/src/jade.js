@@ -272,7 +272,16 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     return { today, who, diary, todo, saidAs };
   }
 
-  function systemPrompt(s, { spoken = false } = {}) {
+  function systemPrompt(s, { spoken = false, speaker = null } = {}) {
+    /* Who is in the room. Without this "my game on Saturday" has nothing to
+       resolve against, and a task lands on whoever the screen last showed.
+       On a personal phone or Rhian's desk this is reliable; on a shared
+       tablet it is a guess, which is why the rule below says to ask. */
+    const whoIsAsking = speaker
+      ? [`You are speaking with ${speaker}.`,
+         `When they say "my", "me", "I" or "mine", they mean ${speaker}.`,
+         "",]
+      : ["You do not know which family member you are speaking with.", ""];
     const voiceRules = [
       "",
       "You are speaking out loud, not writing:",
@@ -290,6 +299,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       `Today is ${s.today} and the family lives in ${familyTz}.`,
       `The family: ${s.who}.`,
       "",
+      ...whoIsAsking,
       "The next seven days:",
       s.diary,
       "",
@@ -303,6 +313,9 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       "  notify_family propose a change for a person to approve. When you use one,",
       "  say plainly what you have drafted and that it needs their go-ahead.",
       "- Never claim something has been added, scheduled or sent. It has not been.",
+      "- If you cannot tell who something is for, ask. A task quietly put on the",
+      "  wrong person is worse than one more question, and a family stops",
+      "  trusting a reminder that nags the wrong child.",
       "- \"Due\" and \"on the calendar\" are different. A task can be scheduled for",
       "  Friday and due Wednesday. Say which one you mean, and never turn a due",
       "  date into a time something is happening.",
@@ -410,7 +423,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
 
     try {
       const s = await snapshot();
-      const instructions = systemPrompt(s);
+      const speaker = await findMember(req.body?.speaker);
+      const instructions = systemPrompt(s, { speaker: speaker?.name || null });
       let proposal = null;
       let said = "";
 
@@ -470,7 +484,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
      tampered browser cannot reconfigure the session, give Jade different
      rules, or spend the key on anything else. The secret expires in ten
      minutes and a session is capped at an hour by OpenAI regardless. */
-  router.post("/realtime/token", async (_req, res) => {
+  router.post("/realtime/token", async (req, res) => {
     if (!API_KEY) {
       return res.status(503).json({
         error: "Talking needs OPENAI_API_KEY on the server."
@@ -478,6 +492,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     }
     try {
       const s = await snapshot();
+      const speaker = await findMember(req.body?.speaker);
       const r = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
         method: "POST",
         headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
@@ -486,7 +501,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
           session: {
             type: "realtime",
             model: REALTIME_MODEL,
-            instructions: systemPrompt(s, { spoken: true }),
+            instructions: systemPrompt(s, { spoken: true, speaker: speaker?.name || null }),
             audio: { output: { voice: REALTIME_VOICE } },
             tools: REALTIME_TOOLS,
             tool_choice: "auto"
