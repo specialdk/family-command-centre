@@ -9142,6 +9142,14 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .notification-sheet > .more-grid button.active {
   border-color: var(--navy); color: var(--navy); background: #f4f3ff;
 }
+/* He styled .connected and .pending but never the resting state, so "Not
+   connected" arrived as bare text beside two pills. */
+.connection-state.off { color: #8a8f9b; background: #f0f1f5; }
+
+/* Settings stacks its sections down the page; each one is one of his cards. */
+.settings-page { display: grid; gap: 18px; }
+.settings-button.active { color: var(--navy); border-color: #c6cdf0; background: #f4f3ff; }
+
 /* The one editable thing on a family card. Quiet by default - it is a
    correction, not a setting most people will touch twice. */
 .says-name { display: block; margin-top: 14px; }

@@ -8,7 +8,6 @@ const NAV = [
   { key: "today",       emoji: "🏠",        label: "Today",       ready: true, today: true, primary: true },
   { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true, primary: true },
   { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true, primary: true },
-  { key: "family",      emoji: "👨‍👩‍👧‍👦", label: "Family",      ready: true, parentOnly: true },
   { key: "recipes",     emoji: "🍲",        label: "Recipes",     ready: true },
   { key: "ideas",       emoji: "💡",        label: "Ideas" },
   { key: "inputs",      emoji: "📥",        label: "Inputs",      parentOnly: true },
@@ -18,6 +17,11 @@ const NAV = [
   { key: "how",         emoji: "?",         label: "How do I" },
   { key: "uploads",     emoji: "＋",        label: "Uploads" }
 ];
+
+/* Not in NAV: Settings is reached from the cog, not the rail. It is where
+   things are configured rather than looked at - the family themselves, and
+   in time the bank and investment sources that feed Inputs and Finances. */
+const SETTINGS = { key: "settings", emoji: "⚙", label: "Settings" };
 
 const PLACEHOLDER = {
   ideas:       "Somewhere to park the things the family half-decides — trips, projects, birthday plans — before they become tasks.",
@@ -222,7 +226,7 @@ export default function App() {
   if (!data) return <div className="splash">Loading family dashboard…</div>;
 
   const nav      = NAV.filter((item) => isParent || !item.parentOnly);
-  const current  = nav.find((n) => n.key === tab) || nav[0];
+  const current  = tab === SETTINGS.key ? SETTINGS : (nav.find((n) => n.key === tab) || nav[0]);
   const parents  = data.members.filter((m) => m.role === "PARENT").slice(0, 2);
 
   return (
@@ -292,7 +296,11 @@ export default function App() {
             >
               🔔{unread.length > 0 && <span className="notification-dot" />}
             </button>
-            <button className="round-button settings-button" title="Settings">⚙</button>
+            <button
+              className={`round-button settings-button ${tab === SETTINGS.key ? "active" : ""}`}
+              onClick={() => setTab(tab === SETTINGS.key ? "today" : SETTINGS.key)}
+              title="Settings"
+            >⚙</button>
             <button className="voice-button" onClick={() => setSolOpen(true)} title="Talk to Sol">
               <span className="voice-mark"><i /><i /><i /><i /></span>
               Talk to Sol
@@ -338,8 +346,8 @@ export default function App() {
             />
           )}
           {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} />}
-          {tab === "family"   && (
-          <Family
+          {tab === "settings" && (
+          <Settings
             members={data.members} tasks={data.tasks}
             onSaveSound={async (id, pronunciation) => {
               await api(`/api/members/${id}`, {
@@ -661,6 +669,95 @@ function Tasks({ open, done, members, toggle }) {
           {!done.length && <p style={{ color: "var(--muted)" }}>Nothing completed yet.</p>}
         </div>
       </section>
+    </div>
+  );
+}
+
+/* Everything that is set up rather than looked at. Desktop only, deliberately:
+   configuring a household is a sit-down job, and squeezing it onto a phone
+   would mean doing it badly in both places. The cog is already hidden below
+   700px; this is the other half of that promise. */
+function Settings({ members, tasks, onSaveSound }) {
+  const [phone, setPhone] = useState(() => {
+    try { return window.matchMedia("(max-width: 700px)").matches; } catch { return false; }
+  });
+  const [sol, setSol] = useState(null);
+
+  useEffect(() => {
+    try {
+      const mq = window.matchMedia("(max-width: 700px)");
+      const on = (e) => setPhone(e.matches);
+      mq.addEventListener("change", on);
+      return () => mq.removeEventListener("change", on);
+    } catch { return undefined; }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    api("/api/sol/status").then((s) => alive && setSol(s)).catch(() => alive && setSol({ connected: false }));
+    return () => { alive = false; };
+  }, []);
+
+  if (phone) {
+    return (
+      <section className="agenda-card">
+        <div className="section-title"><h2>Settings</h2></div>
+        <p className="empty-capture" style={{ marginTop: 12 }}>
+          Setting the family up is a desktop job — there is too much of it for a
+          phone screen. Open the Family Command Centre on a computer.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="settings-page">
+      <section className="agenda-card">
+        <div className="section-title">
+          <h2>The family</h2>
+          <span className="count-badge">{members.length}</span>
+        </div>
+        <p className="connections-intro" style={{ margin: "4px 0 16px", textAlign: "left", maxWidth: "none" }}>
+          Who is in the household, and how each name is said when Sol speaks.
+        </p>
+        <Family members={members} tasks={tasks} onSaveSound={onSaveSound} />
+      </section>
+
+      <section className="agenda-card">
+        <div className="section-title"><h2>Connections</h2></div>
+        <div className="connection-list" style={{ display: "grid", gap: 10, marginTop: 14 }}>
+          <ConnectionRow
+            icon="✦" name="Sol"
+            detail={sol?.connected ? `Answering on ${sol.model}` : "No API key set on the server"}
+            state={sol === null ? "pending" : sol.connected ? "connected" : "off"}
+          />
+          <ConnectionRow
+            icon="M" name="Microsoft 365"
+            detail="Outlook calendar and To Do. Not built yet — it arrives with per-person sign-in."
+            state="off"
+          />
+        </div>
+        <div className="connection-note">
+          <strong>Everyone still shares one password.</strong>
+          <p style={{ margin: "5px 0 0", color: "var(--muted)", fontSize: 13 }}>
+            Individual sign-in comes with the Microsoft connection, and replaces it.
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ConnectionRow({ icon, name, detail, state }) {
+  const label = state === "connected" ? "Connected" : state === "pending" ? "Checking…" : "Not connected";
+  return (
+    <div className="connection-row">
+      <span className="connection-icon">{icon}</span>
+      <div>
+        <strong>{name}</strong>
+        <small>{detail}</small>
+      </div>
+      <span className={`connection-state ${state}`}>{label}</span>
     </div>
   );
 }
