@@ -1,5 +1,5 @@
 import express from "express";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { reduceEvents, WITH_VISIBILITY } from "./visibility.js";
 
 /* Jade — the family's assistant.
@@ -14,10 +14,16 @@ import { reduceEvents, WITH_VISIBILITY } from "./visibility.js";
    That means a mistake by the model is a card someone declines, not a notice
    sent to four people or an event moved out from under them. */
 
-const MODEL = process.env.SOL_MODEL || "claude-sonnet-5-5";
-/* The SDK looks for ANTHROPIC_API_KEY; ANTHROPIC_KEY is accepted so the
-   variable name in Railway and the code cannot drift apart. */
-const API_KEY = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY || null;
+/* OpenAI, because voice is the point of this app and the dialogue has to
+   feel like one. The typed path lives here; the spoken path is a realtime
+   session that calls the same tools on the same server, so the rules below
+   hold whichever way someone asks.
+
+   Model is configurable because model names move faster than this file. If
+   a deploy starts answering 502, check /api/jade/status?probe=1 first - it
+   makes one real call and hands back whatever the provider actually said. */
+const MODEL = process.env.JADE_MODEL || "gpt-6.1-sol";
+const API_KEY = process.env.OPENAI_API_KEY || null;
 
 const READ_TOOLS = [
   {
@@ -26,7 +32,7 @@ const READ_TOOLS = [
       "Look at what is on the family calendar between two dates. Use this for any question " +
       "about what is happening, who is busy, or when something is. Dates are plain " +
       "YYYY-MM-DD in the family's own timezone.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         from: { type: "string", description: "First day to include, YYYY-MM-DD" },
@@ -41,7 +47,7 @@ const READ_TOOLS = [
     description:
       "List the family's tasks. Use this for questions about what needs doing, what is " +
       "outstanding, or what someone has on.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         member: { type: "string", description: "Optional first name to limit it to one person" },
@@ -57,7 +63,7 @@ const WRITE_TOOLS = [
     description:
       "Propose adding a task to the family's list. This does not add it - a person sees " +
       "the proposal and approves it.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         title: { type: "string" },
@@ -73,7 +79,7 @@ const WRITE_TOOLS = [
     description:
       "Propose putting something on the calendar at a time. This does not create it - a " +
       "person sees the proposal and approves it.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         title: { type: "string" },
@@ -91,7 +97,7 @@ const WRITE_TOOLS = [
     description:
       "Propose telling the whole family something. This does not send it - a person reads " +
       "the draft and approves it. Use sparingly: it reaches everyone.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         title: { type: "string", description: "One line, the thing itself" },
@@ -103,6 +109,18 @@ const WRITE_TOOLS = [
 ];
 
 const WRITE_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
+
+/* `strict: false` on purpose. Strict mode requires every property to be
+   required and additionalProperties false; half of these are genuinely
+   optional - a task may have no due date, an event no location - and
+   forcing them would make the model invent values to satisfy a schema. */
+const TOOLS = [...READ_TOOLS, ...WRITE_TOOLS].map((t) => ({
+  type: "function",
+  name: t.name,
+  description: t.description,
+  parameters: t.parameters,
+  strict: false
+}));
 
 /* ------------------------------------------------------------ timezone ---
    The family thinks in local time; the database stores UTC. Working out the
@@ -132,13 +150,21 @@ function zonedToUtc(dateStr, timeStr, tz) {
 const todayIn = (tz) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()); // YYYY-MM-DD
 
-export function createJadeRouter({ prisma, notify, whenLabel, familyTz, anthropic }) {
+export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }) {
   const router = express.Router();
-  /* `anthropic` is injectable so the tests can run the whole route - tools,
+  /* `openai` is injectable so the tests can run the whole route - tools,
      proposals, applying - without a key or a network call. */
-  const client = anthropic || (API_KEY ? new Anthropic({ apiKey: API_KEY }) : null);
+  const client = openai || (API_KEY ? new OpenAI({ apiKey: API_KEY }) : null);
 
   const firstName = (s) => String(s || "").trim().split(/\s+/)[0]?.toLowerCase() || "";
+
+  /* Arguments arrive as a JSON string. A model that produces malformed JSON
+     should get an empty object and a tool result saying so, not take the
+     whole request down. */
+  const parseArgs = (raw) => {
+    if (raw && typeof raw === "object") return raw;
+    try { return JSON.parse(raw || "{}"); } catch { return {}; }
+  };
 
   /* Always a full date, never a bare weekday. The app's own whenLabel says
      "Tue 7:30 pm", which is right for a person looking at this week's screen
@@ -335,7 +361,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, anthropi
   router.post("/", async (req, res) => {
     if (!client) {
       return res.status(503).json({
-        error: "Jade is not connected yet — ANTHROPIC_API_KEY is not set on the server."
+        error: "Jade is not connected yet — OPENAI_API_KEY is not set on the server."
       });
     }
 
@@ -343,55 +369,58 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, anthropi
     if (!message) return res.status(400).json({ error: "Say something to Jade first." });
 
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [];
-    const messages = [...history, { role: "user", content: message }];
+    const input = [...history, { role: "user", content: message }];
 
     try {
       const s = await snapshot();
-      const system = systemPrompt(s);
+      const instructions = systemPrompt(s);
       let proposal = null;
       let said = "";
 
       /* Four passes is plenty: read, read again, then answer. A write tool
          ends the loop immediately, because nothing is going to run. */
       for (let pass = 0; pass < 4; pass++) {
-        const reply = await client.messages.create({
+        const reply = await client.responses.create({
           model: MODEL,
-          max_tokens: 700,
-          system,
-          tools: [...READ_TOOLS, ...WRITE_TOOLS],
-          messages
+          instructions,
+          tools: TOOLS,
+          input
         });
 
-        const text = reply.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+        const text = String(reply.output_text || "").trim();
         if (text) said = text;
 
-        const calls = reply.content.filter((b) => b.type === "tool_use");
+        const calls = (reply.output || []).filter((o) => o.type === "function_call");
         if (!calls.length) break;
 
         const write = calls.find((c) => WRITE_NAMES.has(c.name));
         if (write) {
-          proposal = { tool: write.name, input: write.input, ...describeProposal(write.name, write.input) };
+          const args = parseArgs(write.arguments);
+          proposal = { tool: write.name, input: args, ...describeProposal(write.name, args) };
           break;
         }
 
-        messages.push({ role: "assistant", content: reply.content });
-        messages.push({
-          role: "user",
-          content: await Promise.all(calls.map(async (c) => ({
-            type: "tool_result",
-            tool_use_id: c.id,
-            content: await runTool(c.name, c.input || {})
-          })))
-        });
+        /* The model's own output items go back in before their results, so
+           the next pass can see what it asked for as well as the answer. */
+        input.push(...reply.output);
+        for (const c of calls) {
+          input.push({
+            type: "function_call_output",
+            call_id: c.call_id,
+            output: await runTool(c.name, parseArgs(c.arguments))
+          });
+        }
       }
 
       res.json({
         reply: said || (proposal ? "I've drafted that below — have a look before it goes anywhere." : "…"),
         proposal,
-        history: [...messages.filter((m) => typeof m.content === "string"), ].slice(-8)
+        /* Only the plain turns are handed back to the browser. Tool calls and
+           their results are this request's working-out, not the conversation. */
+        history: input.filter((m) => m && typeof m.content === "string" && m.role).slice(-8)
       });
     } catch (e) {
-      console.error("Jade failed:", e.message);
+      console.error("Jade failed:", e?.message || e);
       res.status(502).json({ error: "Jade could not answer just now." });
     }
   });
@@ -473,9 +502,26 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, anthropi
     }
   });
 
-  router.get("/status", (_req, res) =>
-    res.json({ connected: !!client, model: client ? MODEL : null })
-  );
+  /* ?probe=1 makes one real call. Worth the few cents: a wrong model name
+     or a rejected key otherwise shows up as a generic 502 with the actual
+     reason buried in Railway's logs. */
+  router.get("/status", async (req, res) => {
+    const out = { connected: !!client, model: client ? MODEL : null };
+    if (!client || req.query.probe !== "1") return res.json(out);
+    try {
+      const r = await client.responses.create({
+        model: MODEL,
+        instructions: "Reply with the single word: ready.",
+        input: [{ role: "user", content: "ready?" }]
+      });
+      out.probe = "ok";
+      out.said = String(r.output_text || "").trim().slice(0, 40);
+    } catch (e) {
+      out.probe = "failed";
+      out.detail = String(e?.message || e).split("\n")[0].slice(0, 200);
+    }
+    res.json(out);
+  });
 
   return router;
 }
