@@ -26,16 +26,14 @@ const api = async (path, body) => {
 const APPLY_LABEL = {
   add_task: "Add the task",
   schedule_event: "Put it on the calendar",
-  reschedule_task: "Move it",
-  move_event: "Move it",
+  move_item: "Move it",
   notify_family: "Send it to everyone"
 };
 
 const DONE_LABEL = {
   notify_family: "Sent to the family.",
   schedule_event: "It's on the calendar.",
-  reschedule_task: "Moved.",
-  move_event: "Moved.",
+  move_item: "Moved.",
   add_task: "Added to the list."
 };
 

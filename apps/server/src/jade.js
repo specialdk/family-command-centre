@@ -93,37 +93,25 @@ const WRITE_TOOLS = [
     }
   },
   {
-    name: "reschedule_task",
+    name: "move_item",
     description:
-      "Propose giving an existing task a time on the calendar, or moving the time it " +
-      "already has. Use this when someone wants to move, reschedule or 'do it on' a task " +
-      "that already exists, rather than adding a new one.",
+      "Propose moving something that is already there - a calendar event or a task with a " +
+      "time - to a different time, day or place. Use this for move, reschedule, push back, " +
+      "bring forward, or 'make it 6 instead'. It searches events and tasks together, so you " +
+      "do not need to know which it is. " +
+      "Give only what is changing: to move 5pm to 6pm, send start_time and no date. " +
+      "Take the title from the week you were already given - a few words of it is enough, " +
+      "and you do not need the person to repeat it.",
     input_schema: {
       type: "object",
       properties: {
-        task_title: { type: "string", description: "Enough of the existing task's title to find it" },
-        date: { type: "string", description: "YYYY-MM-DD in the family's timezone" },
-        start_time: { type: "string", description: "HH:mm, 24 hour" },
-        duration_minutes: { type: "number", description: "Defaults to 30" }
-      },
-      required: ["task_title", "date"]
-    }
-  },
-  {
-    name: "move_event",
-    description:
-      "Propose moving an event that is already on the calendar to a different time, or " +
-      "changing where it is. Use this rather than creating a second copy of something.",
-    input_schema: {
-      type: "object",
-      properties: {
-        event_title: { type: "string", description: "Enough of the existing event's title to find it" },
-        date: { type: "string", description: "YYYY-MM-DD in the family's timezone" },
+        title: { type: "string", description: "Enough of its title to find it. Partial is fine." },
+        date: { type: "string", description: "YYYY-MM-DD. Omit to keep the day it is on." },
         start_time: { type: "string", description: "HH:mm, 24 hour. Omit to keep the time." },
-        duration_minutes: { type: "number" },
-        location: { type: "string", description: "Only if it is changing" }
+        duration_minutes: { type: "number", description: "Only if the length is changing." },
+        location: { type: "string", description: "Only if where it happens is changing." }
       },
-      required: ["event_title", "date"]
+      required: ["title"]
     }
   },
   {
@@ -151,12 +139,21 @@ const WRITE_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
 const REQUIRED = {
   add_task: ["title"],
   schedule_event: ["title", "date"],
-  reschedule_task: ["task_title", "date"],
-  move_event: ["event_title", "date"],
+  move_item: ["title"],
   notify_family: ["title"]
 };
-const missingFrom = (tool, args) =>
-  (REQUIRED[tool] || []).filter((f) => !String(args?.[f] ?? "").trim());
+function missingFrom(tool, args) {
+  const gaps = (REQUIRED[tool] || []).filter((f) => !String(args?.[f] ?? "").trim());
+  /* Moving needs something to change, but it does not need all of it: a date
+     with no time keeps the time, a time with no date keeps the day. Asking
+     for both is how "make it 6 instead of 5" turned into an interrogation. */
+  if (tool === "move_item" && !gaps.length) {
+    const changes = ["date", "start_time", "duration_minutes", "location"]
+      .some((f) => String(args?.[f] ?? "").trim());
+    if (!changes) gaps.push("what is changing - a new time, day or place");
+  }
+  return gaps;
+}
 const READ_NAMES = new Set(READ_TOOLS.map((t) => t.name));
 
 /* Separate from the typed model: a realtime model is a different thing with
@@ -364,6 +361,12 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       "- If you cannot tell who something is for, ask. A task quietly put on the",
       "  wrong person is worse than one more question, and a family stops",
       "  trusting a reminder that nags the wrong child.",
+      "- You already have the week above. Take titles from it; never ask someone",
+      "  to repeat the name of something you can see, or to spell it exactly.",
+      "  Moving is one tool, move_item, and it searches events and tasks",
+      "  together - you do not need to know which it is. Send only what changes:",
+      "  a new time with no date keeps the day, a new day with no time keeps",
+      "  the time.",
       "- \"Due\" and \"on the calendar\" are different. A task can be scheduled for",
       "  Friday and due Wednesday. Say which one you mean, and never turn a due",
       "  date into a time something is happening.",
@@ -449,20 +452,18 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
                  input.location || null].filter(Boolean).join(" · ")
       };
     }
-    if (tool === "reschedule_task") {
+    if (tool === "move_item") {
+      /* Only what is changing, so the card says "to 6:00pm" rather than
+         restating a date nobody touched. */
       return {
-        kicker: "Move a task",
-        title: input.task_title,
-        detail: [input.start_time ? `${input.date} at ${input.start_time}` : `${input.date}`,
-                 input.duration_minutes ? `${input.duration_minutes} min` : null].filter(Boolean).join(" · ")
-      };
-    }
-    if (tool === "move_event") {
-      return {
-        kicker: "Move a calendar item",
-        title: input.event_title,
-        detail: [input.start_time ? `${input.date} at ${input.start_time}` : `${input.date}`,
-                 input.location ? `at ${input.location}` : null].filter(Boolean).join(" · ")
+        kicker: "Move it",
+        title: input.title,
+        detail: ["to",
+                 input.date || null,
+                 input.start_time || null,
+                 input.duration_minutes ? `for ${input.duration_minutes} min` : null,
+                 input.location ? `at ${input.location}` : null
+                ].filter(Boolean).join(" ")
       };
     }
     if (tool === "notify_family") {
@@ -521,7 +522,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
           input.push({
             type: "function_call_output",
             call_id: write.call_id,
-            output: `Not drafted: ${missing.join(" and ")} missing. Ask the person for it.`
+            output: `Not drafted: ${missing.join(" and ")} missing. Take the title from the ` +
+                    `week you were given; only ask the person for what you genuinely do not have.`
           });
           continue;
         }
@@ -612,8 +614,10 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       const missing = missingFrom(name, args);
       if (missing.length) {
         return res.json({
-          output: `Not drafted: ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} ` +
-                  "missing. Ask the person for it, then try again. Do not guess."
+          output: `Not drafted: ${missing.join(" and ")} missing. ` +
+                  "You already have this week's calendar and tasks - take the title from " +
+                  "there rather than asking anyone to repeat it. Only ask the person if " +
+                  "two things genuinely match, or if the new time is the part you do not have."
         });
       }
       const proposal = { tool: name, input: args, ...describeProposal(name, args) };
@@ -702,57 +706,62 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
         return res.json({ ok: true, applied: "schedule_event", event });
       }
 
-      /* Finding the thing being moved. Exact title wins; otherwise a single
-         partial match. Two matches is a refusal, not a coin toss - moving
-         the wrong dentist appointment is worse than asking which one. */
-      const findOne = async (model, title, where = {}) => {
-        const needle = String(title || "").trim().toLowerCase();
-        const rows = await prisma[model].findMany({ where, take: 200 });
-        const exact = rows.filter((r) => r.title.trim().toLowerCase() === needle);
-        if (exact.length === 1) return { row: exact[0] };
-        const partial = rows.filter((r) => r.title.toLowerCase().includes(needle));
-        if (partial.length === 1) return { row: partial[0] };
-        if (partial.length > 1) {
-          return { error: `There is more than one: ${partial.slice(0, 4).map((r) => r.title).join(", ")}. Which one?` };
+      if (tool === "move_item") {
+        /* Tasks and events together, because nobody asking to move something
+           knows or cares which one it is in the database. */
+        const needle = String(input.title || "").trim().toLowerCase();
+        const [tasks, events] = await Promise.all([
+          prisma.task.findMany({ where: { status: "OPEN" }, take: 200 }),
+          prisma.event.findMany({ where: { cancelled: false }, take: 200 })
+        ]);
+        const pool = [
+          ...tasks.map((row) => ({ kind: "task", row })),
+          ...events.map((row) => ({ kind: "event", row }))
+        ];
+        const exact = pool.filter((x) => x.row.title.trim().toLowerCase() === needle);
+        const partial = pool.filter((x) => x.row.title.toLowerCase().includes(needle));
+        const hit = exact.length === 1 ? exact[0] : (partial.length === 1 ? partial[0] : null);
+        if (!hit) {
+          if (partial.length > 1) {
+            return res.status(409).json({
+              error: `More than one matches: ${partial.slice(0, 4).map((x) => x.row.title).join(", ")}. Which one?`
+            });
+          }
+          return res.status(404).json({ error: `Nothing called "${input.title}" was found.` });
         }
-        return { error: `Nothing called "${title}" was found.` };
-      };
 
-      if (tool === "reschedule_task") {
-        const { row, error } = await findOne("task", input.task_title, { status: "OPEN" });
-        if (error) return res.status(404).json({ error });
-        const when = zonedToUtc(input.date, input.start_time || "09:00", familyTz);
-        const task = await prisma.task.update({
-          where: { id: row.id },
-          data: {
-            scheduledFor: when,
-            durationMins: input.duration_minutes ? Number(input.duration_minutes) : (row.durationMins ?? 30)
-          },
-          include: { member: true, list: true }
-        });
-        await notify({
-          title: `${task.title} is now ${whenLabel(when, false)}`,
-          body: "Moved through Jade.",
-          kind: "CHANGE", authorId: actorId, entity: "TASK", entityId: task.id
-        });
-        return res.json({ ok: true, applied: "reschedule_task", task });
-      }
-
-      if (tool === "move_event") {
-        const { row, error } = await findOne("event", input.event_title, { cancelled: false });
-        if (error) return res.status(404).json({ error });
-        const mins = Math.max(
-          15,
-          Number(input.duration_minutes || Math.round((row.endsAt - row.startsAt) / 60000) || 60)
-        );
-        /* No start_time means "same time, different day", which is what
-           "move it to Friday" almost always means. */
-        const keep = new Intl.DateTimeFormat("en-GB", {
+        /* Whatever is not being changed stays as it is. "Make it 6" keeps the
+           day; "move it to Friday" keeps the time. */
+        const current = hit.kind === "task" ? (hit.row.scheduledFor || hit.row.dueAt) : hit.row.startsAt;
+        const dayOf = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: familyTz }).format(d);
+        const timeOf = (d) => new Intl.DateTimeFormat("en-GB", {
           timeZone: familyTz, hour: "2-digit", minute: "2-digit", hour12: false
-        }).format(row.startsAt);
-        const startsAt = zonedToUtc(input.date, input.start_time || keep, familyTz);
+        }).format(d);
+
+        const date = input.date || (current ? dayOf(current) : todayIn(familyTz));
+        const time = input.start_time || (current ? timeOf(current) : "09:00");
+        const startsAt = zonedToUtc(date, time, familyTz);
+
+        if (hit.kind === "task") {
+          const mins = Number(input.duration_minutes || hit.row.durationMins || 30);
+          const task = await prisma.task.update({
+            where: { id: hit.row.id },
+            data: { scheduledFor: startsAt, durationMins: mins },
+            include: { member: true, list: true }
+          });
+          await notify({
+            title: `${task.title} is now ${whenLabel(startsAt, false)}`,
+            body: "Moved through Jade.",
+            kind: "CHANGE", authorId: actorId, entity: "TASK", entityId: task.id
+          });
+          return res.json({ ok: true, applied: "move_item", kind: "task", task });
+        }
+
+        const mins = Math.max(15, Number(
+          input.duration_minutes || Math.round((hit.row.endsAt - hit.row.startsAt) / 60000) || 60
+        ));
         const event = await prisma.event.update({
-          where: { id: row.id },
+          where: { id: hit.row.id },
           data: {
             startsAt,
             endsAt: new Date(startsAt.getTime() + mins * 60000),
@@ -765,7 +774,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
           body: input.location ? `Now at ${input.location}. Moved through Jade.` : "Moved through Jade.",
           kind: "CHANGE", authorId: actorId, entity: "EVENT", entityId: event.id
         });
-        return res.json({ ok: true, applied: "move_event", event });
+        return res.json({ ok: true, applied: "move_item", kind: "event", event });
       }
 
       if (tool === "notify_family") {
