@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "node --watch src/index.js",
     "build": "node -e \"console.log('Server uses native Node.js ESM; no compile step required.')\"",
     "start": "node src/index.js",

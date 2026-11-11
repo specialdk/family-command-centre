@@ -47,7 +47,31 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: "Authentication required" });
 }
 
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+/* Says what this server actually is, without needing the database open in
+   another window. Added because a stale Prisma Client - generated before a
+   column existed - looks like a working app that quietly ignores one field,
+   which is a miserable thing to diagnose from the outside. */
+app.get("/api/health", async (_req, res) => {
+  const out = { ok: true };
+  try {
+    const probe = await prisma.familyMember.findFirst({
+      select: { id: true, pronunciation: true }
+    });
+    out.schema = "current";
+    out.pronunciationsSet = await prisma.familyMember.count({
+      where: { NOT: { pronunciation: null } }
+    });
+    out.members = await prisma.familyMember.count();
+    void probe;
+  } catch (e) {
+    /* An unknown-field error here means the client was generated against an
+       older schema, or the migration has not run. Either way the app will
+       behave as if the column does not exist. */
+    out.schema = "stale";
+    out.detail = String(e.message || e).split("\n")[0].slice(0, 160);
+  }
+  res.json(out);
+});
 
 app.get("/api/session", (req, res) => {
   res.json({ authenticated: validAuth(req) });
