@@ -63,11 +63,32 @@ export function sayAs(text, pronunciations) {
   return out;
 }
 
+const DAYS = { Mon:"Monday", Tue:"Tuesday", Wed:"Wednesday", Thu:"Thursday",
+               Fri:"Friday", Sat:"Saturday", Sun:"Sunday" };
+const MONTHS = { Jan:"January", Feb:"February", Mar:"March", Apr:"April",
+                 Jun:"June", Jul:"July", Aug:"August", Sep:"September",
+                 Sept:"September", Oct:"October", Nov:"November", Dec:"December" };
+
+/* "Thu, 13 Nov" is right on a screen and wrong in the ear - engines read Thu
+   as "thoo". Spoken dates are said in full.
+
+   Both patterns are anchored to where a date actually sits rather than to
+   the bare word, because "Sun", "Sat", "Wed" and "Mar" are all ordinary
+   English and a family app that says "the Sunday is out" has swapped one
+   embarrassment for another. A weekday here is always followed by a comma,
+   and a month always follows a day number. */
+export function expandDates(text) {
+  return String(text || "")
+    .replace(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?=,)/g, (m) => DAYS[m] || m)
+    .replace(/(\d\s+)(Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\b/g,
+             (_m, day, mon) => day + (MONTHS[mon] || mon));
+}
+
 export function speak(text, { onDone, pronunciations } = {}) {
   if (!canSpeak || !text) return onDone?.();
   try {
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(sayAs(text, pronunciations));
+    const u = new SpeechSynthesisUtterance(sayAs(expandDates(text), pronunciations));
     u.lang = "en-AU";
     u.rate = 1.02;
     u.onend = () => onDone?.();
