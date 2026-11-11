@@ -630,5 +630,44 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     res.json(out);
   });
 
+  /* ?realtime=1 tries to mint a conversation token and reports what OpenAI
+     said. The browser-side failure is easy to miss - it falls back to the
+     simpler voice and carries on - so there has to be somewhere to look. */
+  router.get("/realtime/check", async (_req, res) => {
+    if (!API_KEY) return res.json({ ok: false, why: "OPENAI_API_KEY is not set" });
+    try {
+      const s = await snapshot();
+      const r = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expires_after: { anchor: "created_at", seconds: 60 },
+          session: {
+            type: "realtime",
+            model: REALTIME_MODEL,
+            instructions: systemPrompt(s, { spoken: true }),
+            audio: { output: { voice: REALTIME_VOICE } },
+            tools: TOOLS,
+            tool_choice: "auto"
+          }
+        })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        return res.json({
+          ok: false, status: r.status, model: REALTIME_MODEL, voice: REALTIME_VOICE,
+          why: String(data?.error?.message || JSON.stringify(data)).slice(0, 400),
+          param: data?.error?.param || null, code: data?.error?.code || null
+        });
+      }
+      res.json({
+        ok: true, model: REALTIME_MODEL, voice: REALTIME_VOICE,
+        gotToken: typeof data.value === "string", expires_at: data.expires_at ?? null
+      });
+    } catch (e) {
+      res.json({ ok: false, why: String(e?.message || e).slice(0, 400) });
+    }
+  });
+
   return router;
 }

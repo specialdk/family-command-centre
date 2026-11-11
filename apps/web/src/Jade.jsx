@@ -55,6 +55,9 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
      someone whether it is their turn. */
   const [phase, setPhase]       = useState("");
   const liveRef = useRef(null);
+  /* Why the conversation could not start, kept because the fallback path
+     clears `error` on its way past. */
+  const failureRef = useRef("");
   /* Rendering has to know a conversation exists, and a ref does not trigger
      a re-render, so the phase doubles as the flag. */
   const live = phase !== "";
@@ -111,6 +114,7 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
     } catch (e) {
       liveRef.current = null;
       setPhase("");
+      failureRef.current = e.message;
       setError(e.message);
       return false;
     }
@@ -118,7 +122,15 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
 
   const begin = async () => {
     if (canTalk && await beginTalking()) return;
-    if (canListen) toggleListening();        // the older, turn-based path
+    /* Falling back is fine. Falling back silently is not: it looks like the
+       conversation simply chose not to happen, and the reason - a refused
+       microphone, a missing key, a model name OpenAI does not recognise -
+       is the only thing worth knowing at that moment. */
+    const why = failureRef.current;
+    if (canListen) {
+      toggleListening();
+      if (why) setError(`Couldn't start a conversation (${why}). Using the simpler voice instead.`);
+    }
   };
 
   const endTalking = () => { liveRef.current?.stop(); liveRef.current = null; setPhase(""); };
