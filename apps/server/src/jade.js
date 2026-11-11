@@ -93,6 +93,40 @@ const WRITE_TOOLS = [
     }
   },
   {
+    name: "reschedule_task",
+    description:
+      "Propose giving an existing task a time on the calendar, or moving the time it " +
+      "already has. Use this when someone wants to move, reschedule or 'do it on' a task " +
+      "that already exists, rather than adding a new one.",
+    input_schema: {
+      type: "object",
+      properties: {
+        task_title: { type: "string", description: "Enough of the existing task's title to find it" },
+        date: { type: "string", description: "YYYY-MM-DD in the family's timezone" },
+        start_time: { type: "string", description: "HH:mm, 24 hour" },
+        duration_minutes: { type: "number", description: "Defaults to 30" }
+      },
+      required: ["task_title", "date"]
+    }
+  },
+  {
+    name: "move_event",
+    description:
+      "Propose moving an event that is already on the calendar to a different time, or " +
+      "changing where it is. Use this rather than creating a second copy of something.",
+    input_schema: {
+      type: "object",
+      properties: {
+        event_title: { type: "string", description: "Enough of the existing event's title to find it" },
+        date: { type: "string", description: "YYYY-MM-DD in the family's timezone" },
+        start_time: { type: "string", description: "HH:mm, 24 hour. Omit to keep the time." },
+        duration_minutes: { type: "number" },
+        location: { type: "string", description: "Only if it is changing" }
+      },
+      required: ["event_title", "date"]
+    }
+  },
+  {
     name: "notify_family",
     description:
       "Propose telling the whole family something. This does not send it - a person reads " +
@@ -109,6 +143,20 @@ const WRITE_TOOLS = [
 ];
 
 const WRITE_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
+
+/* A proposal with a missing field renders as "undefined, all day" on the
+   card and then fails when someone taps it. The model should be asking the
+   person instead, so a write with holes in it is handed straight back as a
+   tool result naming what is missing. */
+const REQUIRED = {
+  add_task: ["title"],
+  schedule_event: ["title", "date"],
+  reschedule_task: ["task_title", "date"],
+  move_event: ["event_title", "date"],
+  notify_family: ["title"]
+};
+const missingFrom = (tool, args) =>
+  (REQUIRED[tool] || []).filter((f) => !String(args?.[f] ?? "").trim());
 const READ_NAMES = new Set(READ_TOOLS.map((t) => t.name));
 
 /* Separate from the typed model: a realtime model is a different thing with
@@ -401,6 +449,22 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
                  input.location || null].filter(Boolean).join(" · ")
       };
     }
+    if (tool === "reschedule_task") {
+      return {
+        kicker: "Move a task",
+        title: input.task_title,
+        detail: [input.start_time ? `${input.date} at ${input.start_time}` : `${input.date}`,
+                 input.duration_minutes ? `${input.duration_minutes} min` : null].filter(Boolean).join(" · ")
+      };
+    }
+    if (tool === "move_event") {
+      return {
+        kicker: "Move a calendar item",
+        title: input.event_title,
+        detail: [input.start_time ? `${input.date} at ${input.start_time}` : `${input.date}`,
+                 input.location ? `at ${input.location}` : null].filter(Boolean).join(" · ")
+      };
+    }
     if (tool === "notify_family") {
       return { kicker: "Notice to the whole family", title: input.title, detail: input.body || "" };
     }
@@ -447,8 +511,19 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
         const write = calls.find((c) => WRITE_NAMES.has(c.name));
         if (write) {
           const args = parseArgs(write.arguments);
-          proposal = { tool: write.name, input: args, ...describeProposal(write.name, args) };
-          break;
+          const missing = missingFrom(write.name, args);
+          if (!missing.length) {
+            proposal = { tool: write.name, input: args, ...describeProposal(write.name, args) };
+            break;
+          }
+          /* Hand it back rather than drafting rubbish, and let the model ask. */
+          input.push(...reply.output);
+          input.push({
+            type: "function_call_output",
+            call_id: write.call_id,
+            output: `Not drafted: ${missing.join(" and ")} missing. Ask the person for it.`
+          });
+          continue;
         }
 
         /* The model's own output items go back in before their results, so
@@ -534,6 +609,13 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     const args = parseArgs(req.body?.arguments);
 
     if (WRITE_NAMES.has(name)) {
+      const missing = missingFrom(name, args);
+      if (missing.length) {
+        return res.json({
+          output: `Not drafted: ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} ` +
+                  "missing. Ask the person for it, then try again. Do not guess."
+        });
+      }
       const proposal = { tool: name, input: args, ...describeProposal(name, args) };
       return res.json({
         output: "Drafted, and shown on screen. Nothing has happened yet - a person " +
@@ -559,6 +641,13 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
   router.post("/apply", async (req, res) => {
     const { tool, input } = req.body?.proposal || {};
     if (!tool || !input) return res.status(400).json({ error: "Nothing to apply." });
+    /* Belt as well as braces: a proposal should never have reached the card
+       with holes in it, but applying one would write rubbish to the family's
+       calendar, so it is checked again here. */
+    const holes = missingFrom(tool, input);
+    if (holes.length) {
+      return res.status(400).json({ error: `Can't do that yet — ${holes.join(" and ")} missing.` });
+    }
     const actorId = req.body?.memberId ? Number(req.body.memberId) : null;
 
     try {
@@ -611,6 +700,72 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
           kind: "CHANGE", authorId: actorId, entity: "EVENT", entityId: event.id
         });
         return res.json({ ok: true, applied: "schedule_event", event });
+      }
+
+      /* Finding the thing being moved. Exact title wins; otherwise a single
+         partial match. Two matches is a refusal, not a coin toss - moving
+         the wrong dentist appointment is worse than asking which one. */
+      const findOne = async (model, title, where = {}) => {
+        const needle = String(title || "").trim().toLowerCase();
+        const rows = await prisma[model].findMany({ where, take: 200 });
+        const exact = rows.filter((r) => r.title.trim().toLowerCase() === needle);
+        if (exact.length === 1) return { row: exact[0] };
+        const partial = rows.filter((r) => r.title.toLowerCase().includes(needle));
+        if (partial.length === 1) return { row: partial[0] };
+        if (partial.length > 1) {
+          return { error: `There is more than one: ${partial.slice(0, 4).map((r) => r.title).join(", ")}. Which one?` };
+        }
+        return { error: `Nothing called "${title}" was found.` };
+      };
+
+      if (tool === "reschedule_task") {
+        const { row, error } = await findOne("task", input.task_title, { status: "OPEN" });
+        if (error) return res.status(404).json({ error });
+        const when = zonedToUtc(input.date, input.start_time || "09:00", familyTz);
+        const task = await prisma.task.update({
+          where: { id: row.id },
+          data: {
+            scheduledFor: when,
+            durationMins: input.duration_minutes ? Number(input.duration_minutes) : (row.durationMins ?? 30)
+          },
+          include: { member: true, list: true }
+        });
+        await notify({
+          title: `${task.title} is now ${whenLabel(when, false)}`,
+          body: "Moved through Jade.",
+          kind: "CHANGE", authorId: actorId, entity: "TASK", entityId: task.id
+        });
+        return res.json({ ok: true, applied: "reschedule_task", task });
+      }
+
+      if (tool === "move_event") {
+        const { row, error } = await findOne("event", input.event_title, { cancelled: false });
+        if (error) return res.status(404).json({ error });
+        const mins = Math.max(
+          15,
+          Number(input.duration_minutes || Math.round((row.endsAt - row.startsAt) / 60000) || 60)
+        );
+        /* No start_time means "same time, different day", which is what
+           "move it to Friday" almost always means. */
+        const keep = new Intl.DateTimeFormat("en-GB", {
+          timeZone: familyTz, hour: "2-digit", minute: "2-digit", hour12: false
+        }).format(row.startsAt);
+        const startsAt = zonedToUtc(input.date, input.start_time || keep, familyTz);
+        const event = await prisma.event.update({
+          where: { id: row.id },
+          data: {
+            startsAt,
+            endsAt: new Date(startsAt.getTime() + mins * 60000),
+            ...(input.location ? { location: String(input.location) } : {})
+          },
+          include: { member: true, calendar: true }
+        });
+        await notify({
+          title: `${event.title} has moved to ${whenLabel(startsAt, event.allDay)}`,
+          body: input.location ? `Now at ${input.location}. Moved through Jade.` : "Moved through Jade.",
+          kind: "CHANGE", authorId: actorId, entity: "EVENT", entityId: event.id
+        });
+        return res.json({ ok: true, applied: "move_event", event });
       }
 
       if (tool === "notify_family") {

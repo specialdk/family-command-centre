@@ -26,7 +26,17 @@ const api = async (path, body) => {
 const APPLY_LABEL = {
   add_task: "Add the task",
   schedule_event: "Put it on the calendar",
+  reschedule_task: "Move it",
+  move_event: "Move it",
   notify_family: "Send it to everyone"
+};
+
+const DONE_LABEL = {
+  notify_family: "Sent to the family.",
+  schedule_event: "It's on the calendar.",
+  reschedule_task: "Moved.",
+  move_event: "Moved.",
+  add_task: "Added to the list."
 };
 
 export default function Jade({ viewer, members = [], onClose, onChanged }) {
@@ -181,16 +191,8 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
       await api("/api/jade/apply", { proposal, memberId: viewer?.id ?? null });
       /* Tell the conversation what happened. Otherwise Jade is left waiting
          on a tap it cannot see, and the next thing it says ignores it. */
-      liveRef.current?.say(
-        proposal.tool === "notify_family" ? "I approved it. It has been sent to the family."
-        : proposal.tool === "schedule_event" ? "I approved it. It is on the calendar now."
-        : "I approved it. The task has been added."
-      );
-      setDone(
-        proposal.tool === "notify_family" ? "Sent to the family."
-        : proposal.tool === "schedule_event" ? "It's on the calendar."
-        : "Added to the list."
-      );
+      liveRef.current?.say(`I approved it. ${DONE_LABEL[proposal.tool] || "It is done."}`);
+      setDone(DONE_LABEL[proposal.tool] || "Done.");
       setProposal(null);
       onChanged?.();
     } catch (e) {
