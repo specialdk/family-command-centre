@@ -9157,8 +9157,10 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   display: block; color: var(--muted); font-size: 12px;
   font-weight: 850; text-transform: uppercase; letter-spacing: .06em;
 }
+.says-name-row { display: flex; gap: 6px; align-items: stretch; margin-top: 5px; }
+.says-name-row .chip-button { flex: none; padding: 8px 11px; font-size: 13px; }
 .says-name input {
-  width: 100%; margin-top: 5px; padding: 8px 10px;
+  width: 100%; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: 10px;
   font: inherit; font-size: 14px; color: var(--ink); background: #fff;
 }

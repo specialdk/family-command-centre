@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Calendar from "./Calendar.jsx";
 import Sol from "./Sol.jsx";
+import { canSpeak, primeSpeech, speak } from "./voice.js";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -802,17 +803,32 @@ function SaysName({ member, onSave }) {
     catch { setState("failed"); }
   };
 
+  /* You cannot tune a phonetic spelling you cannot hear. This says the box's
+     current contents through the same engine Sol uses, so the thing being
+     judged is the thing that will be said. */
+  const hear = () => {
+    primeSpeech();
+    speak(value.trim() || member.name);
+  };
+
   return (
     <label className="says-name">
       <span>Said aloud as</span>
-      <input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-        placeholder={member.name}
-        aria-label={`How ${member.name} is said aloud`}
-      />
+      <div className="says-name-row">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          placeholder={member.name}
+          aria-label={`How ${member.name} is said aloud`}
+        />
+        {canSpeak && (
+          <button type="button" className="chip-button" onClick={hear} title={`Hear ${member.name}`}>
+            Hear it
+          </button>
+        )}
+      </div>
       <small>
         {state === "saving" ? "Saving…"
           : state === "saved" ? "Saved"

@@ -61,6 +61,17 @@ app.get("/api/health", async (_req, res) => {
     out.pronunciationsSet = await prisma.familyMember.count({
       where: { NOT: { pronunciation: null } }
     });
+    /* A pronunciation identical to the name is a no-op - the substitution
+       skips it - and looks exactly like a working one from the outside.
+       Counting them, without naming anyone on an endpoint that sits outside
+       the password, is enough to tell the two apart. */
+    const withSound = await prisma.familyMember.findMany({
+      where: { NOT: { pronunciation: null } },
+      select: { name: true, pronunciation: true }
+    });
+    out.sameAsName = withSound.filter(
+      (m) => m.name.trim().toLowerCase() === String(m.pronunciation).trim().toLowerCase()
+    ).length;
     out.members = await prisma.familyMember.count();
     void probe;
   } catch (e) {
