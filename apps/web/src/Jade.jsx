@@ -55,9 +55,11 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
      someone whether it is their turn. */
   const [phase, setPhase]       = useState("");
   const liveRef = useRef(null);
-  /* Why the conversation could not start, kept because the fallback path
-     clears `error` on its way past. */
-  const failureRef = useRef("");
+  /* Why the conversation could not start. Its own state, not `error`: the
+     fallback clears error on its way past, and so does the next question,
+     which between them made a failure invisible twice over. This line stays
+     under the orb until a conversation actually starts. */
+  const [liveNote, setLiveNote] = useState("");
   /* Rendering has to know a conversation exists, and a ref does not trigger
      a re-render, so the phase doubles as the flag. */
   const live = phase !== "";
@@ -114,23 +116,21 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
     } catch (e) {
       liveRef.current = null;
       setPhase("");
-      failureRef.current = e.message;
-      setError(e.message);
+      console.warn("Jade: conversation did not start —", e.message);
+      setLiveNote(e.message);
       return false;
     }
   };
 
   const begin = async () => {
-    if (canTalk && await beginTalking()) return;
-    /* Falling back is fine. Falling back silently is not: it looks like the
-       conversation simply chose not to happen, and the reason - a refused
-       microphone, a missing key, a model name OpenAI does not recognise -
-       is the only thing worth knowing at that moment. */
-    const why = failureRef.current;
-    if (canListen) {
-      toggleListening();
-      if (why) setError(`Couldn't start a conversation (${why}). Using the simpler voice instead.`);
+    if (canTalk) {
+      if (await beginTalking()) { setLiveNote(""); return; }
+    } else {
+      /* Not even attempted. Worth saying so plainly - a browser that cannot
+         open a conversation looks identical to one where it failed. */
+      setLiveNote("This browser can't open a conversation (no WebRTC or no microphone access).");
     }
+    if (canListen) toggleListening();        // the older, turn-based path
   };
 
   const endTalking = () => { liveRef.current?.stop(); liveRef.current = null; setPhase(""); };
@@ -231,6 +231,12 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
         ) : (
           <p className="listen-button" style={{ pointerEvents: "none" }}>
             This browser can't listen — type instead
+          </p>
+        )}
+
+        {liveNote && (
+          <p className="assistant-rule" style={{ margin: "6px auto 0", maxWidth: 420, color: "#9a713b" }}>
+            One question at a time — {liveNote}
           </p>
         )}
 
