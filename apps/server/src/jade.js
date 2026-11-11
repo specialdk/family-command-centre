@@ -109,6 +109,17 @@ const WRITE_TOOLS = [
 ];
 
 const WRITE_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
+const READ_NAMES = new Set(READ_TOOLS.map((t) => t.name));
+
+/* Separate from the typed model: a realtime model is a different thing with
+   its own names, and pinning them apart means a change to one cannot
+   silently break the other. Voice is a matter of taste, so it is a setting -
+   the current options are alloy, ash, ballad, coral, echo, sage, shimmer,
+   verse, marin and cedar, and OpenAI recommends marin and cedar for quality.
+   Their documentation says nothing about how any of them sound, so the only
+   way to choose is to listen. */
+const REALTIME_MODEL = process.env.JADE_REALTIME_MODEL || "gpt-realtime-2.1";
+const REALTIME_VOICE = process.env.JADE_VOICE || "marin";
 
 /* `strict: false` on purpose. Strict mode requires every property to be
    required and additionalProperties false; half of these are genuinely
@@ -245,10 +256,30 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
         ).join("\n")
       : "- nothing open";
 
-    return { today, who, diary, todo };
+    /* Carried through for the spoken session: the model reads the letters
+       of a name unless it is told otherwise, which is how Rhian became
+       "Ree-ann". On the typed path the browser substitutes before speaking;
+       a speech-to-speech model speaks for itself, so it has to be told. */
+    const saidAs = members
+      .filter((m) => m.pronunciation && m.pronunciation.trim())
+      .map((m) => `${m.name} is said "${m.pronunciation.trim()}"`);
+
+    return { today, who, diary, todo, saidAs };
   }
 
-  function systemPrompt(s) {
+  function systemPrompt(s, { spoken = false } = {}) {
+    const voiceRules = [
+      "",
+      "You are speaking out loud, not writing:",
+      "- Say dates in full. \"Thursday the twelfth of November\", never \"Thu, 12 Nov\".",
+      "- One or two sentences. Someone is standing in a kitchen waiting for you.",
+      "- No lists, no bullet points, no formatting of any kind - there is nothing",
+      "  to look at. Join things with \"and\" and \"then\" the way a person would.",
+      "- If there is a lot on, give the next two things and offer the rest.",
+      ...(s.saidAs?.length
+        ? ["- Say these names this way, however they are spelt: " + s.saidAs.join("; ") + "."]
+        : [])
+    ];
     return [
       "You are Jade, the assistant inside a family's command centre app.",
       `Today is ${s.today} and the family lives in ${familyTz}.`,
@@ -285,7 +316,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       "  pair of asterisks on the screen and two spoken words.",
       "- Listing a day is fine: one item per line, starting with the time.",
       "- Be brief. Two or three sentences. This is read on a phone, often one-handed.",
-      "- Australian spelling and 24-hour-free plain times: say 7:30pm, not 19:30."
+      "- Australian spelling and 24-hour-free plain times: say 7:30pm, not 19:30.",
+      ...(spoken ? voiceRules : [])
     ].join("\n");
   }
 
@@ -422,6 +454,81 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     } catch (e) {
       console.error("Jade failed:", e?.message || e);
       res.status(502).json({ error: "Jade could not answer just now." });
+    }
+  });
+
+  // ------------------------------------------------------------- realtime --
+  /* The spoken path. The browser talks to OpenAI directly over WebRTC,
+     because routing audio through Railway would add a hop to every syllable.
+     What it does NOT get is the API key: this endpoint mints a short-lived
+     client secret with the instructions and tools already baked in, so a
+     tampered browser cannot reconfigure the session, give Jade different
+     rules, or spend the key on anything else. The secret expires in ten
+     minutes and a session is capped at an hour by OpenAI regardless. */
+  router.post("/realtime/token", async (_req, res) => {
+    if (!API_KEY) {
+      return res.status(503).json({
+        error: "Talking needs OPENAI_API_KEY on the server."
+      });
+    }
+    try {
+      const s = await snapshot();
+      const r = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expires_after: { anchor: "created_at", seconds: 600 },
+          session: {
+            type: "realtime",
+            model: REALTIME_MODEL,
+            instructions: systemPrompt(s, { spoken: true }),
+            audio: { output: { voice: REALTIME_VOICE } },
+            tools: TOOLS,
+            tool_choice: "auto"
+          }
+        })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        console.error("Realtime token failed:", JSON.stringify(data).slice(0, 300));
+        return res.status(502).json({
+          error: "Could not start a conversation.",
+          detail: String(data?.error?.message || `HTTP ${r.status}`).slice(0, 200)
+        });
+      }
+      res.json({ value: data.value, expires_at: data.expires_at, model: REALTIME_MODEL });
+    } catch (e) {
+      console.error("Realtime token failed:", e?.message || e);
+      res.status(502).json({ error: "Could not start a conversation." });
+    }
+  });
+
+  /* Tools for the spoken session. The browser relays what the model asked
+     for; the decision about whether it runs is made here, on the server,
+     exactly as it is for typed questions. A reading tool runs. A writing
+     tool does not - it comes back as a proposal, and the model is told in
+     plain words that nothing has happened yet, so it cannot tell the family
+     it sent something it did not send. */
+  router.post("/tool", async (req, res) => {
+    const name = String(req.body?.name || "");
+    const args = parseArgs(req.body?.arguments);
+
+    if (WRITE_NAMES.has(name)) {
+      const proposal = { tool: name, input: args, ...describeProposal(name, args) };
+      return res.json({
+        output: "Drafted, and shown on screen. Nothing has happened yet - a person " +
+                "has to tap to approve it. Tell them you have drafted it and ask them to check.",
+        proposal
+      });
+    }
+
+    if (!READ_NAMES.has(name)) return res.json({ output: `Jade has no tool called ${name}.` });
+
+    try {
+      res.json({ output: await runTool(name, args) });
+    } catch (e) {
+      console.error("Jade tool failed:", e?.message || e);
+      res.json({ output: "That could not be looked up just now." });
     }
   });
 

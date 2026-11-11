@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { canListen, canSpeak, listen, primeSpeech, speak, stopSpeaking } from "./voice.js";
+import { canTalk, startConversation } from "./realtime.js";
 
 /* Jade's sheet, built to the design already in Rhian's stylesheet rather than
    invented: .assistant-sheet, the 76px .listen-orb with its listening pulse,
@@ -48,6 +49,15 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
   const [hearing, setHearing]   = useState(false);
   const [heard, setHeard]       = useState("");
   const [mute, setMute]         = useState(false);
+  /* The live conversation, when there is one: a WebRTC session where Jade
+     hears and speaks for itself. `phase` is what the orb is showing -
+     listening, thinking or speaking - which is the only honest way to tell
+     someone whether it is their turn. */
+  const [phase, setPhase]       = useState("");
+  const liveRef = useRef(null);
+  /* Rendering has to know a conversation exists, and a ref does not trigger
+     a re-render, so the phase doubles as the flag. */
+  const live = phase !== "";
   const inputRef = useRef(null);
   const stopRef  = useRef(null);
   /* Whether the question came by voice. A spoken question gets a spoken
@@ -67,15 +77,51 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
      orb reads as a glitch. */
   const started = useRef(false);
   useEffect(() => {
-    if (!canListen || started.current) return;
+    if (started.current) return;
+    if (!canTalk && !canListen) return;
     started.current = true;
-    const t = setTimeout(() => toggleListening(), 180);
+    const t = setTimeout(() => begin(), 180);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* Leaving mid-sentence stops the voice with you. */
-  useEffect(() => () => { stopRef.current?.(); stopSpeaking(); }, []);
+  useEffect(() => () => {
+    liveRef.current?.stop(); stopRef.current?.(); stopSpeaking();
+  }, []);
+
+  /* A conversation, if this browser and this server can hold one. It falls
+     back to the one-question-at-a-time path rather than failing: a family
+     standing in a kitchen should get an answer, not an explanation of why
+     WebRTC did not connect. */
+  const beginTalking = async () => {
+    setError(""); setHeard(""); setDone(""); setPhase("connecting");
+    try {
+      liveRef.current = await startConversation({
+        onEvent: (e) => {
+          if (e.kind === "said")      { setHeard(e.text); setAsked(e.text); }
+          if (e.kind === "reply")     { setReply(e.text); setHeard(""); }
+          if (e.kind === "proposal")  setProposal(e.proposal);
+          if (e.kind === "ended")     { setPhase(""); liveRef.current = null; }
+          if (["listening", "thinking", "speaking"].includes(e.kind)) setPhase(e.kind);
+        },
+        onError: (msg) => setError(msg)
+      });
+      return true;
+    } catch (e) {
+      liveRef.current = null;
+      setPhase("");
+      setError(e.message);
+      return false;
+    }
+  };
+
+  const begin = async () => {
+    if (canTalk && await beginTalking()) return;
+    if (canListen) toggleListening();        // the older, turn-based path
+  };
+
+  const endTalking = () => { liveRef.current?.stop(); liveRef.current = null; setPhase(""); };
 
   const ask = async (text, { spoken = false } = {}) => {
     const message = String(text || "").trim();
@@ -100,8 +146,10 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
   };
 
   const toggleListening = () => {
+    if (liveRef.current) { endTalking(); return; }
     if (hearing) { stopRef.current?.(); return; }
     if (busy) return;
+    if (canTalk && !started.current) { begin(); return; }
     primeSpeech();            // must happen inside the tap, for Safari
     stopSpeaking();
     setError(""); setHeard(""); setHearing(true);
@@ -118,6 +166,13 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
     setApplying(true); setError("");
     try {
       await api("/api/jade/apply", { proposal, memberId: viewer?.id ?? null });
+      /* Tell the conversation what happened. Otherwise Jade is left waiting
+         on a tap it cannot see, and the next thing it says ignores it. */
+      liveRef.current?.say(
+        proposal.tool === "notify_family" ? "I approved it. It has been sent to the family."
+        : proposal.tool === "schedule_event" ? "I approved it. It is on the calendar now."
+        : "I approved it. The task has been added."
+      );
       setDone(
         proposal.tool === "notify_family" ? "Sent to the family."
         : proposal.tool === "schedule_event" ? "It's on the calendar."
@@ -137,23 +192,29 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
       <div className="assistant-sheet" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
 
-        {/* Rhian's orb, with his own listening pulse. It only offers itself
-            where the browser can actually hear - a button that does nothing
-            is worse than no button. */}
+        {/* Rhian's orb, with his own listening pulse. It pulses while the
+            conversation is live, whichever way round the talking is going,
+            and the line underneath says which - because in a conversation
+            the only thing a person needs to know is whose turn it is. */}
         <button
-          className={`listen-orb ${hearing ? "listening" : ""}`}
+          className={`listen-orb ${(live || hearing) ? "listening" : ""}`}
           onClick={toggleListening}
-          disabled={!canListen || busy}
-          title={!canListen ? "This browser can't listen — type instead"
-                : hearing ? "Stop listening" : "Tap and ask"}
-          aria-pressed={hearing}
+          disabled={!canTalk && !canListen}
+          title={!canTalk && !canListen ? "This browser can't listen — type instead"
+                : live ? "End the conversation" : "Tap and ask"}
+          aria-pressed={!!live || hearing}
         >
           <span className="voice-mark"><i /><i /><i /><i /></span>
         </button>
 
-        {canListen ? (
-          <button type="button" className="listen-button" onClick={toggleListening} disabled={busy}>
-            {hearing ? "Listening — tap to stop" : "Tap the circle and ask again"}
+        {(canTalk || canListen) ? (
+          <button type="button" className="listen-button" onClick={toggleListening}>
+            {phase === "connecting" ? "Connecting…"
+              : phase === "listening" ? "Listening — tap to end"
+              : phase === "thinking" ? "Thinking…"
+              : phase === "speaking" ? "Jade is talking — just interrupt"
+              : hearing ? "Listening — tap to stop"
+              : "Tap the circle and talk"}
           </button>
         ) : (
           <p className="listen-button" style={{ pointerEvents: "none" }}>
@@ -161,7 +222,7 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
           </p>
         )}
 
-        {canSpeak && canListen && (
+        {canSpeak && canListen && !live && (
           <button
             type="button"
             className="listen-button"
@@ -178,7 +239,8 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
           {/* `done` outranks `reply`: once something has been applied, the
               confirmation is the news, not the draft that preceded it. Asking
               again clears it. */}
-          {hearing && heard ? heard
+          {heard ? heard
+            : live && !reply ? "Ask away."
             : hearing ? "Listening…"
             : busy ? "Thinking…"
             : error ? error
