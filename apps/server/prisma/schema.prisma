@@ -82,6 +82,8 @@ model FamilyMember {
   noticesFor       Notification[]     @relation("NoticeFor")
   noticesBy        Notification[]     @relation("NoticeBy")
   noticeReads      NotificationRead[]
+  pushSubscriptions PushSubscription[]
+  reminderLogs      ReminderLog[]
 }
 
 /// One per connected provider account. Tokens are encrypted at rest with
@@ -150,7 +152,8 @@ model Event {
   /// Set on an instance that was moved, so the series knows which one it replaces.
   originalStartsAt    DateTime?
   cancelled           Boolean @default(false)
-
+  /// Minutes before startsAt to send a reminder. Null = family default.
+  reminderMins Int?
   visibility   Visibility @default(FULL)
   source       Source     @default(LOCAL)
   externalId   String?
@@ -202,7 +205,8 @@ model Task {
   completedAt  DateTime?
   /// The "Need help" column in Rhian's Tasks board.
   needsHelp    Boolean   @default(false)
-
+  /// Minutes before scheduledFor (or dueAt) to send a reminder. Null = family default.
+  reminderMins Int?
   recurrenceRule String?
   position       Int     @default(0)
 
@@ -318,4 +322,57 @@ model NotificationRead {
   readAt         DateTime     @default(now())
 
   @@unique([notificationId, memberId])
+}
+
+// ------------------------------------------------------------ push reminders
+
+/// One row per device that has turned on reminders. A person can have
+/// several (phone, tablet, laptop). Created by the device itself from
+/// Settings -> Reminders, never typed in.
+model PushSubscription {
+  id         Int          @id @default(autoincrement())
+  memberId   Int
+  member     FamilyMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  endpoint   String
+  p256dh     String
+  auth       String
+  /// Friendly name shown in Settings, e.g. "Jack's phone".
+  label      String?
+  userAgent  String?
+  createdAt  DateTime     @default(now())
+  lastSeenAt DateTime     @default(now())
+
+  @@unique([memberId, endpoint])
+}
+
+enum ReminderItemType {
+  EVENT
+  TASK
+}
+
+/// One row per reminder actually sent. The unique constraint is what stops
+/// a person being reminded twice about the same occurrence - including
+/// each occurrence of a recurring series, and if two server copies run.
+model ReminderLog {
+  id        Int              @id @default(autoincrement())
+  memberId  Int
+  member    FamilyMember     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  itemType  ReminderItemType
+  itemId    Int
+  occursAt  DateTime
+  sentAt    DateTime         @default(now())
+
+  @@unique([memberId, itemType, itemId, occursAt])
+  @@index([sentAt])
+}
+
+/// Family-wide settings that belong to the family, not to Railway.
+/// Always a single row, id = 1.
+model FamilySetting {
+  id               Int      @id @default(1)
+  reminderLeadMins Int      @default(30)
+  /// Local time in FAMILY_TIMEZONE, "HH:MM". No pushes between these.
+  quietStart       String   @default("21:30")
+  quietEnd         String   @default("06:30")
+  updatedAt        DateTime @updatedAt
 }
