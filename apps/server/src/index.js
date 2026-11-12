@@ -7,6 +7,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { PrismaClient } from "@prisma/client";
 import { createJadeRouter } from "./jade.js";
+import { createPush } from "./push.js";
 import { reduceEvents } from "./visibility.js";
 
 const prisma = new PrismaClient();
@@ -225,6 +226,9 @@ app.patch("/api/members/:id", async (req, res) => {
 });
 
 app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ }));
+
+const push = createPush({ prisma });
+app.use("/api/push", push.router);
 
 app.post("/api/tasks", async (req, res) => {
   const { title, notes, listId, kind, dueAt, scheduledFor, memberId } = req.body || {};
