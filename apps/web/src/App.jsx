@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Calendar from "./Calendar.jsx";
 import Jade from "./Jade.jsx";
 import { canSpeak, primeSpeech, speak } from "./voice.js";
+import Reminders from "./Reminders.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -377,6 +378,7 @@ export default function App() {
           onPick={(k) => { setTab(k); setMoreOpen(false); }}
           onCancel={() => setMoreOpen(false)}
           onSignOut={logout}
+          onReminders={() => { setTab("settings"); setMoreOpen(false); }}
         />
       )}
       {jadeOpen && (
@@ -393,7 +395,7 @@ export default function App() {
   );
 }
 
-function MoreSheet({ items, current, onPick, onCancel, onSignOut }) {
+function MoreSheet({ items, current, onPick, onCancel, onSignOut, onReminders }) {
   /* Sign out lives here on a phone. The bottom bar has five slots and a
      sign-out button is not worth one of them; it also kept the bar 42px
      wider than the screen, which is how it ended up in this sheet. */
@@ -413,6 +415,9 @@ function MoreSheet({ items, current, onPick, onCancel, onSignOut }) {
           <button type="button" className="chip-button" onClick={onCancel}>Close</button>
           {onSignOut && (
             <button type="button" className="chip-button" onClick={onSignOut}>Sign out</button>
+          )}
+          {onReminders && (
+            <button type="button" className="chip-button" onClick={onReminders}>🔔 Reminders</button>
           )}
         </div>
       </div>
@@ -685,7 +690,7 @@ function Tasks({ open, done, members, toggle }) {
    configuring a household is a sit-down job, and squeezing it onto a phone
    would mean doing it badly in both places. The cog is already hidden below
    700px; this is the other half of that promise. */
-function Settings({ members, tasks, onSaveSound }) {
+function Settings({ members, tasks, viewer, onSaveSound }) {
   const [phone, setPhone] = useState(() => {
     try { return window.matchMedia("(max-width: 700px)").matches; } catch { return false; }
   });
@@ -707,14 +712,17 @@ function Settings({ members, tasks, onSaveSound }) {
   }, []);
 
   if (phone) {
-    return (
-      <section className="agenda-card">
-        <div className="section-title"><h2>Settings</h2></div>
-        <p className="empty-capture" style={{ marginTop: 12 }}>
-          Setting the family up is a desktop job — there is too much of it for a
-          phone screen. Open the Family Command Centre on a computer.
-        </p>
-      </section>
+        return (
+      <>
+        <section className="agenda-card">
+          <div className="section-title"><h2>Settings</h2></div>
+          <p className="empty-capture" style={{ marginTop: 12 }}>
+            Setting the family up is a desktop job — there is too much of it for a
+            phone screen. Open the Family Command Centre on a computer.
+          </p>
+        </section>
+        <Reminders api={api} members={members} viewer={viewer} />
+      </>
     );
   }
 
@@ -730,6 +738,8 @@ function Settings({ members, tasks, onSaveSound }) {
         </p>
         <Family members={members} tasks={tasks} onSaveSound={onSaveSound} />
       </section>
+
+      <Reminders api={api} members={members} viewer={viewer} showAll />
 
       <section className="agenda-card">
         <div className="section-title"><h2>Connections</h2></div>

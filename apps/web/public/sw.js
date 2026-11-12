@@ -50,6 +50,37 @@ self.addEventListener("message", (e) => {
   if (e.data === "skip-waiting") self.skipWaiting();
 });
 
+/* A reminder arrives from the server as { title, body, url, tag }. The tag
+   means a repeat of the same reminder replaces the old one rather than
+   stacking up. */
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data?.text() }; }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Family Command Centre", {
+      body: data.body || "",
+      tag: data.tag || undefined,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { url: data.url || "/" },
+    })
+  );
+});
+
+/* Tapping a reminder brings the app forward if it is already open, and
+   opens it if not. */
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      const open = wins.find((w) => new URL(w.url).origin === self.location.origin);
+      if (open) return open.focus().then(() => open.navigate?.(url)).catch(() => {});
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
