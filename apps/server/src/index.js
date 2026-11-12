@@ -8,7 +8,13 @@ import cookieParser from "cookie-parser";
 import { PrismaClient } from "@prisma/client";
 import { createJadeRouter } from "./jade.js";
 import { createPush } from "./push.js";
+import { createReminders, cleanReminderMins } from "./reminders.js";
 import { reduceEvents } from "./visibility.js";
+
+// The server works in the family's time zone, not the host's (Railway is UTC).
+// Recurring events are expanded with local-time date maths, so on UTC a
+// 7 am Tuesday in Adelaide would land on Monday.
+process.env.TZ ||= process.env.FAMILY_TIMEZONE || "Australia/Adelaide";
 
 const prisma = new PrismaClient();
 const app = express();
@@ -230,6 +236,10 @@ app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAM
 const push = createPush({ prisma });
 app.use("/api/push", push.router);
 
+const reminders = createReminders({ prisma, push, familyTz: FAMILY_TZ });
+app.use("/api/reminders", reminders.router);
+reminders.start();
+
 app.post("/api/tasks", async (req, res) => {
   const { title, notes, listId, kind, dueAt, scheduledFor, memberId } = req.body || {};
   if (!String(title || "").trim()) return res.status(400).json({ error: "Task title is required" });
@@ -324,6 +334,7 @@ app.post("/api/events", async (req, res) => {
       notes: notes ? String(notes) : null,
       visibility: visibility || "FULL",
       recurrenceRule: req.body?.recurrenceRule || null,
+      reminderMins: cleanReminderMins(req.body?.reminderMins),
       memberId: memberId ? Number(memberId) : null
     },
     include: { member: true, calendar: true }
@@ -361,6 +372,7 @@ app.patch("/api/events/:id", async (req, res) => {
   if (b.memberId !== undefined)   data.memberId = b.memberId ? Number(b.memberId) : null;
   if (b.calendarId !== undefined) data.calendarId = Number(b.calendarId);
   if (b.recurrenceRule !== undefined) data.recurrenceRule = b.recurrenceRule || null;
+  if (b.reminderMins !== undefined) data.reminderMins = cleanReminderMins(b.reminderMins);
 
   if (data.startsAt && data.endsAt && data.endsAt <= data.startsAt)
     return res.status(400).json({ error: "It has to finish after it starts" });

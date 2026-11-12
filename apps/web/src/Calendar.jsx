@@ -115,7 +115,7 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
 
   const openDraft = (date, startMin = 9 * 60, memberId = viewer?.id ?? null) =>
     setDraft({ date: startOfDay(date), startMin, endMin: startMin + 60, memberId, title: "", location: "",
-               allDay: false, recurrenceRule: null, isSeries: false });
+    allDay: false, recurrenceRule: null, isSeries: false, reminderMins: null });
 
   /* Opening an existing one. An event that reached the browser reduced to
      "Busy" never carried its real title, so editing it here would overwrite
@@ -137,7 +137,8 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
       id: e.seriesId ?? e.id,
       date: startOfDay(s), startMin: minutesInto(s), endMin: end,
       memberId: e.memberId ?? null, title: e.title, location: e.location || "",
-      allDay: !!e.allDay, recurrenceRule: e.recurrenceRule || null, isSeries
+      allDay: !!e.allDay, recurrenceRule: e.recurrenceRule || null, isSeries,
+      reminderMins: e.reminderMins ?? null
     });
   };
 
@@ -637,6 +638,7 @@ function EventSheet({ draft, setDraft, members, calendars, onCancel, onCreate, o
       calendarId: cal?.id,
       allDay: draft.allDay,
       recurrenceRule: draft.recurrenceRule,
+      reminderMins: draft.reminderMins ?? null,
       startsAt: draft.allDay ? at(0) : at(draft.startMin),
       endsAt:   draft.allDay ? at(23 * 60 + 59) : at(draft.endMin)
     };
@@ -691,6 +693,24 @@ function EventSheet({ draft, setDraft, members, calendars, onCancel, onCreate, o
         </div>
 
         <Recurrence draft={draft} set={set} />
+
+        <div className="sheet-row">
+          <label>Remind
+            <select
+              value={draft.reminderMins ?? ""}
+              onChange={(e) => set({ reminderMins: e.target.value === "" ? null : Number(e.target.value) })}
+            >
+              <option value="">Family default</option>
+              <option value="0">At the time</option>
+              <option value="5">5 minutes before</option>
+              <option value="15">15 minutes before</option>
+              <option value="30">30 minutes before</option>
+              <option value="60">1 hour before</option>
+              <option value="1440">1 day before</option>
+              <option value="-1">No reminder</option>
+            </select>
+          </label>
+        </div>
 
         {draft.isSeries && (
           <p className="sheet-note">
