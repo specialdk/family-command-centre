@@ -24,7 +24,8 @@
 // - Every send logs one JSON line, so Railway logs show exactly what fired.
 
 import { Router } from "express";
-import webpush from "web-push";
+import * as webpushModule from "web-push";
+const webpush = webpushModule.default ?? webpushModule;
 
 // VAPID is configured on first use, so the server still boots (and every
 // other feature still works) if the keys are missing.
