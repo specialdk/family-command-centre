@@ -11,6 +11,38 @@ const KNOWN = ["rhian", "danielle", "lachie", "jack", "maddie"];
 /* Waking to bedtime - the hours a family actually schedules into. */
 const PLACE_HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
 
+/* Items that overlap in one person's column sit side by side, as in
+   Outlook, instead of on top of each other. Works on drawn size, not real
+   duration, because short items get a minimum height and can overlap
+   visually when their times do not. Returns extra style per item; an item
+   with nothing beside it gets nothing and keeps Rhian's own left/right. */
+function laneStyles(items) {
+  const order = items.map((_, i) => i)
+    .sort((a, b) => items[a].top - items[b].top || items[b].height - items[a].height);
+  const out = items.map(() => ({}));
+  const lane = [];
+  let cluster = [], ends = [], clusterEnd = -1;
+  const close = () => {
+    const n = Math.max(...cluster.map((i) => lane[i])) + 1;
+    if (n > 1) for (const i of cluster) {
+      out[i] = { left: `calc(${(lane[i] * 100) / n}% + 4px)`, width: `calc(${100 / n}% - 8px)`, right: "auto" };
+    }
+    cluster = []; ends = []; clusterEnd = -1;
+  };
+  for (const i of order) {
+    const { top, height } = items[i];
+    if (cluster.length && top >= clusterEnd) close();
+    let l = ends.findIndex((end) => end <= top);
+    if (l === -1) { l = ends.length; ends.push(0); }
+    ends[l] = top + height;
+    lane[i] = l;
+    cluster.push(i);
+    clusterEnd = Math.max(clusterEnd, top + height);
+  }
+  if (cluster.length) close();
+  return out;
+}
+
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const addDays    = (d, n) => new Date(startOfDay(d).getTime() + n * DAY);
 const startOfWeek = (d) => addDays(d, -startOfDay(d).getDay());
@@ -518,27 +550,44 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
               onDrop={(ev) => drop(ev, m?.id ?? null)}
               title={carrying ? `Place "${carrying.title}" here` : "Click to add something here"}
             >
-              {forDay.filter((e) => (e.memberId ?? null) === (m?.id ?? null)).map((e) => {
-                const s = new Date(e.startsAt), t = new Date(e.endsAt);
-                const top = e.allDay ? 0 : minutesInto(s);
-                /* A 30-minute task is a 30px block - too short to read a name in.
-                   Short items get a visual floor while keeping their real
-                   duration; the same compromise every calendar makes. */
-                const height = e.allDay ? 28 : Math.max(e.isTask ? 46 : 30, (t - s) / 60000);
-                return (
-                  <div
-                    key={e.id}
-                    className={`day-event-block ${personClass(e.member)} ${e.isTask ? "day-event-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
-                    style={{ top, height }}
-                    onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
-                    title={e.isTask ? `${e.title} — click to tick off` : e.title}
-                  >
-                    <span>{e.isTask ? (e.status === "DONE" ? "Done" : "To do") : e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
-                    <strong>{e.title}</strong>
-                    {!e.allDay && !e.isTask && <small>{hhmm(s)} – {hhmm(t)}{e.location ? ` · ${e.location}` : ""}</small>}
-                  </div>
-                );
-              })}
+              {(() => {
+                const items = forDay.filter((e) => (e.memberId ?? null) === (m?.id ?? null)).map((e) => {
+                  const s = new Date(e.startsAt), t = new Date(e.endsAt);
+                  const top = e.allDay ? 0 : minutesInto(s);
+                  /* A 30-minute task is a 30px block - too short to read a name in.
+                     Short items get a visual floor while keeping their real
+                     duration; the same compromise every calendar makes. */
+                  const height = e.allDay ? 28 : Math.max(e.isTask ? 46 : 30, (t - s) / 60000);
+                  return { e, s, t, top, height };
+                });
+                const lanes = laneStyles(items);
+                return items.map(({ e, s, t, top, height }, idx) => {
+                  /* Too short for label, title and time: one line, time first.
+                     The full title is still in the hover text. */
+                  const short = !e.allDay && height < (e.isTask ? 44 : 58);
+                  return (
+                    <div
+                      key={e.id}
+                      className={`day-event-block ${personClass(e.member)} ${e.isTask ? "day-event-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
+                      style={{ top, height, ...lanes[idx] }}
+                      onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
+                      title={e.isTask ? `${e.title} — click to tick off` : e.title}
+                    >
+                      {short ? (
+                        <strong style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {e.isTask ? "To do · " : `${hhmm(s)} · `}{e.title}
+                        </strong>
+                      ) : (
+                        <>
+                          <span>{e.isTask ? (e.status === "DONE" ? "Done" : "To do") : e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
+                          <strong>{e.title}</strong>
+                          {!e.allDay && !e.isTask && <small>{hhmm(s)} – {hhmm(t)}{e.location ? ` · ${e.location}` : ""}</small>}
+                        </>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           ))}
         </div>
