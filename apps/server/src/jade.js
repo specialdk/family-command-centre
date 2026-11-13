@@ -334,6 +334,19 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
     return { today, who, diary, todo, saidAs };
   }
 
+  /* Every day for the next fortnight, written out: "Mon 16 Nov = 2026-11-16".
+     "By Monday" landed on Saturday when Jade did the weekday maths herself. */
+  function nextDays() {
+    const out = [];
+    const start = zonedToUtc(todayIn(familyTz), "12:00", familyTz);
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(start.getTime() + i * 86400000);
+      const label = new Intl.DateTimeFormat("en-AU", { timeZone: familyTz, weekday: "long", day: "numeric", month: "short" }).format(d);
+      out.push(`  ${label} = ${new Intl.DateTimeFormat("en-CA", { timeZone: familyTz }).format(d)}${i === 0 ? " (today)" : i === 1 ? " (tomorrow)" : ""}`);
+    }
+    return out.join("\n");
+  }
+
   function systemPrompt(s, { spoken = false, speaker = null, about = null, ideaList = null } = {}) {
     /* Who is in the room. Without this "my game on Saturday" has nothing to
        resolve against, and a task lands on whoever the screen last showed.
@@ -359,6 +372,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
     return [
       "You are Jade, the assistant inside a family's command centre app.",
       `Today is ${s.today} and the family lives in ${familyTz}.`,
+      "The next fortnight, so you never work out a weekday yourself:",
+      nextDays(),
       `The family: ${s.who}.`,
       "",
       ...whoIsAsking,
@@ -389,6 +404,10 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       "  for a person to approve. When a tool result says it was drafted, say so",
       "  and that it needs their go-ahead.",
       "- Never claim something has been done unless the tool result says it was.",
+      "- Task or calendar? Something a person needs to DO - especially \"by\" a day, or",
+      "  \"needs to\", \"has to\", \"remember to\" - is a task: use add_task, with the day as",
+      "  due_date. A calendar item (schedule_event) is only for being somewhere or something",
+      "  happening at a set time: a match, an appointment, a dinner. If unsure, it is a task.",
       "- If you cannot tell who something is for, ask. A task quietly put on the",
       "  wrong person is worse than one more question, and a family stops",
       "  trusting a reminder that nags the wrong child.",
@@ -466,16 +485,24 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
   /* Turned into the three lines of Rhian's proposal card: the uppercase
      kicker, the thing itself, and the detail underneath. */
   function describeProposal(tool, input) {
+    const nice = (date, time) => {
+      if (!date) return null;
+      const d = zonedToUtc(date, time || "12:00", familyTz);
+      return new Intl.DateTimeFormat("en-AU", {
+        timeZone: familyTz, weekday: "short", day: "numeric", month: "short",
+        ...(time ? { hour: "numeric", minute: "2-digit" } : {})
+      }).format(d);
+    };
     if (tool === "add_task") {
       return {
         kicker: "New task",
         title: input.title,
         detail: [input.member ? `for ${input.member}` : "unallocated",
-                 input.due_date ? `due ${input.due_date}` : null].filter(Boolean).join(" · ")
+                 input.due_date ? `due ${nice(input.due_date)}` : null].filter(Boolean).join(" · ")
       };
     }
     if (tool === "schedule_event") {
-      const when = input.start_time ? `${input.date} at ${input.start_time}` : `${input.date}, all day`;
+      const when = input.start_time ? nice(input.date, input.start_time) : `${nice(input.date)}, all day`;
       return {
         kicker: "New calendar item",
         title: input.title,
@@ -490,8 +517,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
         kicker: "Move it",
         title: input.title,
         detail: ["to",
-                 input.date || null,
-                 input.start_time || null,
+                 input.date ? nice(input.date, input.start_time) : (input.start_time || null),
                  input.duration_minutes ? `for ${input.duration_minutes} min` : null,
                  input.location ? `at ${input.location}` : null
                 ].filter(Boolean).join(" ")
@@ -637,6 +663,9 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
 
         const calls = (reply.output || []).filter((o) => o.type === "function_call");
         if (!calls.length) break;
+        for (const c of calls) {
+          console.log(JSON.stringify({ event: "jade.tool", via: "typed", name: c.name, speaker: speaker?.name || null, args: parseArgs(c.arguments) }));
+        }
 
         /* Ideas are their own: saving and updating happen straight away (the
            idea is theirs), turning one into tasks comes back as a proposal. */
@@ -774,6 +803,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
   router.post("/tool", async (req, res) => {
     const name = String(req.body?.name || "");
     const args = parseArgs(req.body?.arguments);
+    console.log(JSON.stringify({ event: "jade.tool", via: "voice", name, speaker: req.body?.speaker || null, args }));
 
     if (IDEA_NAMES.has(name)) {
       if (!ideas) return res.json({ output: "Ideas are not available here." });
@@ -868,10 +898,15 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
         const allDay = !input.start_time;
         const startsAt = zonedToUtc(input.date, input.start_time || "00:00", familyTz);
         const minutes = allDay ? 24 * 60 : Number(input.duration_minutes || 60);
-        const calendar = await prisma.calendar.findFirst({
-          where: member ? { memberId: member.id } : {},
-          orderBy: { id: "asc" }
-        });
+        /* The person's own calendar if they have one (never a busy-only work
+           calendar), otherwise the Family calendar tagged with their name -
+           which is how the children's events have always been kept. */
+        const calendar =
+          (member && await prisma.calendar.findFirst({
+            where: { memberId: member.id, defaultVisibility: "FULL" }, orderBy: { id: "asc" }
+          })) ||
+          await prisma.calendar.findFirst({ where: { memberId: null }, orderBy: { id: "asc" } });
+        if (!calendar) return res.status(500).json({ error: "There is no family calendar to put it on." });
         const event = await prisma.event.create({
           data: {
             title: String(input.title).trim(),
@@ -1004,7 +1039,9 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       res.status(400).json({ error: `Jade cannot apply ${tool}.` });
     } catch (e) {
       console.error("Jade apply failed:", e.message);
-      res.status(500).json({ error: "That could not be applied." });
+      // Say why, briefly - "could not be applied" alone hid a missing calendar.
+      const why = String(e.message || "").split("\n").filter(Boolean).pop() || "unknown error";
+      res.status(500).json({ error: `That could not be applied: ${why.slice(0, 160)}` });
     }
   });
 
