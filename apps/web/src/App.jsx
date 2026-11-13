@@ -115,6 +115,23 @@ export default function App() {
       .catch(() => setSession(false));
   }, []);
 
+  /* Other devices change things too - a child ticks something off on a
+     phone, and the parent's laptop should show it without a refresh. So the
+     app re-reads whenever it comes back into view, and once a minute while
+     it is on screen. A hidden tab does nothing. */
+  useEffect(() => {
+    if (!session) return undefined;
+    const refresh = () => { if (document.visibilityState === "visible") load().catch(() => {}); };
+    const timer = setInterval(refresh, 60000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [session]);
+
   const mutate = async (fn) => {
     setSaving(true);
     try { await fn(); await load(); }
