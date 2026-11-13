@@ -23,17 +23,25 @@ export const canTalk = typeof window !== "undefined"
 
 const CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
-/* Pull every function call out of whatever arrived, without caring which
-   event it was. Covers an item event, a finished response, and a bare item. */
-function functionCallsIn(msg) {
+/* Function calls that are FINISHED. A call is announced first with empty
+   arguments ("output_item.added") and filled in afterwards. Acting on the
+   announcement sent the server a move with no title, and the real one was
+   then skipped as a duplicate. So: remember names from announcements, act
+   only on events that carry the complete arguments. */
+function functionCallsIn(msg, names) {
   const out = [];
-  const take = (item) => {
-    if (item && item.type === "function_call" && item.name) out.push(item);
+  const remember = (item) => {
+    if (item?.type === "function_call" && item.call_id && item.name) names.set(item.call_id, item.name);
   };
-  take(msg?.item);
-  for (const o of msg?.response?.output || []) take(o);
-  if (Array.isArray(msg?.output)) for (const o of msg.output) take(o);
-  return out;
+  remember(msg?.item);
+  for (const o of msg?.response?.output || []) remember(o);
+  const finished = (item) => item?.type === "function_call" && item.name && item.status !== "in_progress";
+  if (msg?.type === "response.function_call_arguments.done" && msg.call_id) {
+    out.push({ call_id: msg.call_id, name: msg.name || names.get(msg.call_id), arguments: msg.arguments });
+  }
+  if (msg?.type === "response.output_item.done" && finished(msg.item)) out.push(msg.item);
+  if (msg?.type === "response.done") for (const o of msg.response?.output || []) if (finished(o)) out.push(o);
+  return out.filter((c) => c.name);
 }
 
 /**
@@ -78,6 +86,7 @@ export async function startConversation({ onEvent, onError, speaker = null, abou
      so the person only has to answer. */
   if (aboutTaskId) channel.addEventListener("open", () => send({ type: "response.create" }));
   const handled = new Set();
+  const callNames = new Map();   // call_id -> tool name, from the announcement
   let stopped = false;
 
   const send = (obj) => {
@@ -106,7 +115,7 @@ export async function startConversation({ onEvent, onError, speaker = null, abou
       }
     }
 
-    for (const call of functionCallsIn(msg)) {
+    for (const call of functionCallsIn(msg, callNames)) {
       const id = call.call_id || call.id;
       if (!id || handled.has(id)) continue;      // the same call can arrive twice
       handled.add(id);
