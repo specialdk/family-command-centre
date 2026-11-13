@@ -237,9 +237,10 @@ app.patch("/api/members/:id", async (req, res) => {
 const ideas = createIdeas({ prisma, familyTz: FAMILY_TZ });
 app.use("/api/ideas", ideas.router);
 app.use("/api/recipes", createRecipes({ prisma }).router);
-app.use("/api/plan", createPlan({ prisma, familyTz: FAMILY_TZ }).router);
+const plan = createPlan({ prisma, familyTz: FAMILY_TZ });
+app.use("/api/plan", plan.router);
 app.use("/api/shopping", createShopping({ prisma }).router);
-app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ, ideas }));
+app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ, ideas, meals: plan }));
 
 const push = createPush({ prisma });
 app.use("/api/push", push.router);

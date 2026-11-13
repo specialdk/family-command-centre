@@ -128,6 +128,11 @@ export default function RecipeBook({ api, viewer, members, onShopping }) {
                padding: "10px 10px 12px", display: "grid", gap: 7, font: "inherit", color: "var(--ink)", alignContent: "start" }}>
       <Picture r={r} height={150} />
       <strong style={{ fontSize: 15, padding: "0 4px" }}>{r.title}</strong>
+      {plan.requests.some((w) => w.recipeId === r.id) && (
+        <span style={{ fontSize: 12, color: "var(--coral)", fontWeight: 700, padding: "0 4px" }}>
+          🙋 {plan.requests.filter((w) => w.recipeId === r.id).map((w) => w.member?.name || "someone").join(", ")} asked for this
+        </span>
+      )}
       <span style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>{r.summary}</span>
       <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <Facts r={r} />
@@ -138,7 +143,7 @@ export default function RecipeBook({ api, viewer, members, onShopping }) {
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
-      <WeekStrip plan={plan} choosing={choosing} onMakeList={() => setCupboard(true)}
+      <WeekStrip plan={plan} choosing={choosing} onMakeList={() => setCupboard(true)} viewer={viewer} onOpen={setOpenId}
         onDay={(d, m) => {
           if (m) { setChoosing(null); setDayOpen({ day: d, meal: m }); }
           else { setChoosing(choosing === d ? null : d); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }
@@ -267,7 +272,7 @@ function RecipeSheet({ plan, id, api, viewer, members, onClose, onRate, busy, su
             {live.glutenFree && (
               <p className="sheet-note" style={{ marginTop: 10 }}>Gluten free with ordinary ingredients — where it says "check label", brands vary.</p>
             )}
-            {plan && <PlanButtons plan={plan} recipeId={live.id} />}
+            {plan && <PlanButtons plan={plan} recipeId={live.id} viewer={viewer} />}
             <div className="sheet-actions" style={{ marginTop: 16 }}>
               <button type="button" className="chip-button" onClick={onClose}>Close</button>
             </div>

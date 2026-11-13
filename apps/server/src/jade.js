@@ -2,6 +2,7 @@ import express from "express";
 import OpenAI from "openai";
 import { reduceEvents, WITH_VISIBILITY } from "./visibility.js";
 import { IDEA_TOOLS, IDEA_NAMES } from "./ideas.js";
+import { MEAL_TOOLS, MEAL_NAMES } from "./plan.js";
 
 /* Jade — the family's assistant.
 
@@ -189,7 +190,7 @@ const REALTIME_VOICE = process.env.JADE_VOICE || "marin";
    required and additionalProperties false; half of these are genuinely
    optional - a task may have no due date, an event no location - and
    forcing them would make the model invent values to satisfy a schema. */
-const TOOL_BASE = [...READ_TOOLS, ...WRITE_TOOLS, ...IDEA_TOOLS].map((t) => ({
+const TOOL_BASE = [...READ_TOOLS, ...WRITE_TOOLS, ...IDEA_TOOLS, ...MEAL_TOOLS].map((t) => ({
   type: "function",
   name: t.name,
   description: t.description,
@@ -230,7 +231,7 @@ function zonedToUtc(dateStr, timeStr, tz) {
 const todayIn = (tz) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()); // YYYY-MM-DD
 
-export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, ideas = null }) {
+export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, ideas = null, meals = null }) {
   const router = express.Router();
   /* `openai` is injectable so the tests can run the whole route - tools,
      proposals, applying - without a key or a network call. */
@@ -688,6 +689,18 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
 
         /* Ideas are their own: saving and updating happen straight away (the
            idea is theirs), turning one into tasks comes back as a proposal. */
+        /* Dinner wish list and "what's for dinner" - answered straight away. */
+        const mealCall = meals && calls.find((c) => MEAL_NAMES.has(c.name));
+        if (mealCall) {
+          const r = await meals.runTool(mealCall.name, parseArgs(mealCall.arguments), { speaker });
+          input.push(...reply.output);
+          for (const c of calls) {
+            input.push({ type: "function_call_output", call_id: c.call_id,
+                         output: c === mealCall ? r.output : "Not run - one thing at a time." });
+          }
+          continue;
+        }
+
         const ideaCall = ideas && calls.find((c) => IDEA_NAMES.has(c.name));
         if (ideaCall) {
           const soFar = input
@@ -832,6 +845,16 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
     const name = String(req.body?.name || "");
     const args = parseArgs(req.body?.arguments);
     console.log(JSON.stringify({ event: "jade.tool", via: "voice", name, speaker: req.body?.speaker || null, args }));
+
+    if (MEAL_NAMES.has(name)) {
+      if (!meals) return res.json({ output: "Dinners are not available here." });
+      try {
+        return res.json(await meals.runTool(name, args, { speaker: await findMember(req.body?.speaker) }));
+      } catch (e) {
+        console.error("Jade dinner tool failed:", e?.message || e);
+        return res.json({ output: "That could not be saved just now. Say so." });
+      }
+    }
 
     if (IDEA_NAMES.has(name)) {
       if (!ideas) return res.json({ output: "Ideas are not available here." });

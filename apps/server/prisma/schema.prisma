@@ -84,6 +84,7 @@ model FamilyMember {
   noticeReads      NotificationRead[]
   pushSubscriptions PushSubscription[]
   reminderLogs      ReminderLog[]
+  mealRequests      MealRequest[]
   ideas             Idea[]
   ideaEntries       IdeaEntry[]
   recipeRatings     RecipeRating[]
@@ -483,6 +484,7 @@ model Recipe {
 
   ratings RecipeRating[]
   meals   Meal[]
+  requests MealRequest[]
 
   @@unique([title, source])
 }
@@ -499,4 +501,17 @@ model RecipeRating {
   updatedAt DateTime     @updatedAt
 
   @@unique([recipeId, memberId])
+}
+
+/// The dinner wish list: "can we have tacos?". Waits until the week is
+/// planned; Plan my week puts these first, and planning one ticks it off.
+model MealRequest {
+  id        Int           @id @default(autoincrement())
+  title     String
+  recipeId  Int?
+  recipe    Recipe?       @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  memberId  Int?
+  member    FamilyMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  plannedAt DateTime?
+  createdAt DateTime      @default(now())
 }

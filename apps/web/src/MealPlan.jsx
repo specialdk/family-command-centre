@@ -26,30 +26,65 @@ const saveGf = (v) => { try { localStorage.setItem("fcc-plan-gf", v ? "1" : "0")
 export function useWeekPlan(api) {
   const [start, setStart] = useState(() => mondayOf());
   const [meals, setMeals] = useState([]);
+  const [requests, setRequests] = useState([]);
   const [error, setError] = useState("");
-  const load = () => api(`/api/plan?start=${start}`).then((r) => setMeals(r.meals)).catch((e) => setError(e.message));
+  const load = () => Promise.all([
+    api(`/api/plan?start=${start}`).then((r) => setMeals(r.meals)),
+    api("/api/plan/requests").then(setRequests),
+  ]).catch((e) => setError(e.message));
   useEffect(() => { load(); }, [start]);
   const run = async (fn) => { setError(""); try { await fn(); } catch (e) { setError(e.message); } await load(); };
   return {
-    start, setStart, meals, error, setError, reload: load,
+    start, setStart, meals, requests, error, setError, reload: load,
+    ask: (recipeId, memberId) => run(() => api("/api/plan/requests", { method: "POST", body: JSON.stringify({ recipeId, memberId }) })),
+    dismiss: (req) => run(() => api(`/api/plan/requests/${req.id}`, { method: "DELETE" })),
     byDay: Object.fromEntries(meals.map((m) => [m.day, m])),
     put: (recipeId, date) => run(() => api("/api/plan", { method: "POST", body: JSON.stringify({ recipeId, date }) })),
     remove: (meal) => run(() => api(`/api/plan/${meal.id}`, { method: "DELETE" })),
     fill: (glutenFree) => run(async () => {
       const r = await api("/api/plan/fill", { method: "POST", body: JSON.stringify({ start, glutenFree }) });
+      if (r.wished) setError("");
       if (r.short) setError(`Filled ${r.added} night${r.added === 1 ? "" : "s"} - ran out of recipes that haven't been had in the last fortnight.`);
     }),
   };
 }
 
-function Thumb({ recipe, size }) {
-  const box = { width: "100%", aspectRatio: "4 / 3", borderRadius: 8, overflow: "hidden", background: "linear-gradient(135deg, #fff4e6, #eef6ff)", display: "grid", placeItems: "center", fontSize: 22 };
+function Thumb({ recipe, fill }) {
+  const box = { width: "100%", ...(fill ? { height: "100%" } : { aspectRatio: "4 / 3" }), borderRadius: fill ? 0 : 8, overflow: "hidden", background: "linear-gradient(135deg, #fff4e6, #eef6ff)", display: "grid", placeItems: "center", fontSize: fill ? 14 : 22 };
   return <div style={box}>{recipe?.imageAt
     ? <img src={`/api/recipes/${recipe.id}/image?v=${encodeURIComponent(recipe.imageAt)}`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
     : <span aria-hidden="true">🍽️</span>}</div>;
 }
 
-export function WeekStrip({ plan, onDay, choosing, onMakeList }) {
+/* The kids' "can we have...?" list. Drag one onto a night, or tap to open it. */
+function WishList({ plan, viewer, onOpen }) {
+  if (!plan.requests.length) return null;
+  const isParent = viewer?.role === "PARENT";
+  return (
+    <div style={{ marginTop: 12 }}>
+      <p className="eyebrow">🙋 WISH LIST · PLAN MY WEEK PUTS THESE FIRST</p>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+        {plan.requests.map((w) => (
+          <span key={w.id} draggable={!!w.recipeId}
+            onDragStart={(e) => { e.dataTransfer.setData("text/recipe-id", String(w.recipeId)); e.dataTransfer.setData("text/plain", String(w.recipeId)); }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 6px 4px 4px", borderRadius: 999, border: "1px solid var(--line)", background: "#fffaf0", cursor: w.recipeId ? "grab" : "default" }}>
+            <span style={{ width: 30, height: 30, borderRadius: 999, overflow: "hidden", flex: "0 0 auto" }}><Thumb recipe={w.recipe} fill /></span>
+            <button type="button" onClick={() => w.recipeId && onOpen(w.recipeId)} style={{ border: 0, background: "none", font: "inherit", cursor: "pointer", padding: 0, textAlign: "left" }}>
+              <strong style={{ fontSize: 13 }}>{w.title}</strong>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}> · {w.member?.name || "someone"}{w.recipeId ? "" : " · not in the book"}</span>
+            </button>
+            {(isParent || w.member?.id === viewer?.id) && (
+              <button type="button" onClick={() => plan.dismiss(w)} aria-label="Remove from wish list"
+                style={{ border: 0, background: "none", color: "#98a0ad", fontSize: 16, cursor: "pointer" }}>×</button>
+            )}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function WeekStrip({ plan, onDay, choosing, onMakeList, viewer, onOpen }) {
   const [gf, setGf] = useState(readGf);
   const [over, setOver] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -99,6 +134,8 @@ export function WeekStrip({ plan, onDay, choosing, onMakeList }) {
         })}
       </div>
 
+      <WishList plan={plan} viewer={viewer} onOpen={onOpen} />
+
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
         <button type="button" className="calendar-add-item" onClick={fill} disabled={busy || !empty}>
           {busy ? "Planning…" : empty ? `✨ Plan my week (${empty} night${empty === 1 ? "" : "s"})` : "✨ Week's planned"}
@@ -134,9 +171,17 @@ export function DaySheet({ day, meal, onSwap, onRemove, onOpen, onClose }) {
 }
 
 /* Row of nights inside a recipe - the phone way to plan. */
-export function PlanButtons({ plan, recipeId, onDone }) {
+export function PlanButtons({ plan, recipeId, onDone, viewer }) {
+  const mine = plan.requests.find((w) => w.recipeId === recipeId && w.member?.id === viewer?.id);
+  const who = plan.requests.filter((w) => w.recipeId === recipeId).map((w) => w.member?.name).filter(Boolean);
   return (
     <div style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+        {viewer && (mine
+          ? <button type="button" className="chip-button" onClick={() => plan.dismiss(mine)} style={{ background: "#fffaf0", fontWeight: 800 }}>🙋 You asked for this · undo</button>
+          : <button type="button" className="chip-button" onClick={() => plan.ask(recipeId, viewer.id)}>🙋 Can we have this?</button>)}
+        {who.length > 0 && <span style={{ fontSize: 12, color: "var(--muted)" }}>On the wish list: {who.join(", ")}</span>}
+      </div>
       <p className="eyebrow">ADD TO DINNERS</p>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
         {weekDays(plan.start).map((d) => {
