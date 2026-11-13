@@ -466,6 +466,11 @@ model Recipe {
   tags        String[]
   /// STARTER = came with the app; FAMILY = added by the family.
   source      String   @default("FAMILY")
+  /// A picture of the dish, kept in the database because Railway's disk does
+  /// not survive a redeploy. Generated once; "New picture" replaces it.
+  imageData   Bytes?
+  imageType   String?
+  imageAt     DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
