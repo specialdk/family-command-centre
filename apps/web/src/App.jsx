@@ -13,12 +13,12 @@ const NAV = [
   { key: "today",       emoji: "🏠",        label: "Today",       ready: true, today: true, primary: true },
   { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true, primary: true },
   { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true, primary: true },
-  { key: "recipes",     emoji: "🍲",        label: "Recipes",     ready: true },
   { key: "ideas",       emoji: "💡",        label: "Ideas",       ready: true },
+  { key: "recipes",     emoji: "🍲",        label: "Recipes",     ready: true },
+  { key: "shopping",    emoji: "🛒",        label: "Shopping",    ready: true, primary: true },
   { key: "inputs",      emoji: "📥",        label: "Inputs",      parentOnly: true },
   { key: "finances",    emoji: "💰",        label: "Finances",    parentOnly: true },
   { key: "investments", emoji: "📈",        label: "Investments", parentOnly: true },
-  { key: "shopping",    emoji: "🛒",        label: "Shopping",    ready: true, primary: true },
   { key: "how",         emoji: "?",         label: "How do I" },
   { key: "uploads",     emoji: "＋",        label: "Uploads" }
 ];
