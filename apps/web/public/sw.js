@@ -10,7 +10,7 @@
    the one file whose contents change on every deploy, so it is fetched from
    the network first and only served from the cache when offline. */
 
-const VERSION = "fcc-v1";
+const VERSION = "fcc-v2";
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 const KEEP = [SHELL, ASSETS];
