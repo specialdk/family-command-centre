@@ -45,7 +45,7 @@ const ESCALATE_MINS = 60;
 // Each stage is logged as its own row in ReminderLog, keyed by the task's
 // time plus a few milliseconds, so one task can be reminded, nudged and
 // escalated once each without changing the table.
-const STAGE_MS = { remind: 0, nudge: 1, escalate: 2 };
+const STAGE_MS = { remind: 0, nudge: 1, escalate: 2, eve: 3, morning: 4 };
 const MAX_LEAD = 1440; // one day
 export const NO_REMINDER = -1;
 
@@ -179,6 +179,22 @@ export function createReminders({ prisma, push, familyTz }) {
         due: !t.scheduledFor, owner: nameOf(t.memberId),
       };
 
+      /* Due by a day, but nobody has said when they will do it: a heads-up
+         at 7 pm the night before (time to pack the library books) and again
+         at 8 am on the day. Moving it to a set time switches to the normal
+         reminder, nudge and parent follow-up below. */
+      if (!t.scheduledFor) {
+        if ((t.reminderMins ?? s.reminderLeadMins) < 0) continue;
+        const dayStart = new Date(t.dueAt.getTime() - minutesOfDay(t.dueAt) * MIN);
+        const eveAt = new Date(dayStart.getTime() - 5 * 60 * MIN);       // 7 pm the day before
+        const morningAt = new Date(dayStart.getTime() + 8 * 60 * MIN);   // 8 am on the day
+        if (inWindow(eveAt) && eveAt > (t.createdAt || 0)) {
+          out.push({ ...base, stage: "eve", sendAt: eveAt, memberIds: [t.memberId] });
+        }
+        if (inWindow(morningAt)) out.push({ ...base, stage: "morning", sendAt: morningAt, memberIds: [t.memberId] });
+        continue;
+      }
+
       // 1. Before: the ordinary reminder.
       const remindAt = sendTimeFor(start, t.reminderMins, t.updatedAt);
       if (inWindow(remindAt)) out.push({ ...base, stage: "remind", sendAt: remindAt, memberIds: [t.memberId] });
@@ -208,6 +224,12 @@ export function createReminders({ prisma, push, familyTz }) {
   function payloadFor(r, now) {
     const url = r.type === "TASK" ? `/?task=${r.itemId}` : `/?event=${r.itemId}`;
     const tag = `rem-${r.stage || "remind"}-${r.type}-${r.itemId}-${r.start.toISOString()}`;
+    if (r.stage === "eve") {
+      return { title: `Tomorrow: ${r.title}`, body: "Due tomorrow. Done already, or when will you do it?", url, tag };
+    }
+    if (r.stage === "morning") {
+      return { title: `Today: ${r.title}`, body: "Due today. Done, or when will you do it?", url, tag };
+    }
     if (r.stage === "nudge") {
       return { title: `Still to do: ${r.title}`, body: `It was on for ${clock(r.start)}. Done, or later?`, url, tag };
     }

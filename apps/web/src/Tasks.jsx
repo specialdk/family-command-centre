@@ -73,6 +73,16 @@ const numButton = (hot, active) => ({
 export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, onToggle, onAdd }) {
   const phone = usePhone();
   const [filter, setFilter] = useState(null);   // { memberId, group } - either may be undefined
+  /* Who has a phone set up for reminders. A reminder to someone with no
+     device goes nowhere, silently - so say so where the parents look. */
+  const [reachable, setReachable] = useState(null);
+  useEffect(() => {
+    fetch("/api/push/devices", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => setReachable(new Set(list.map((d) => d.memberId))))
+      .catch(() => setReachable(null));
+  }, [tasks]);
+  const noPhone = (id) => id != null && reachable && !reachable.has(id);
   const now = new Date();
 
   // Who appears: everyone (parents widening the view) or just the viewer.
@@ -137,6 +147,7 @@ export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, o
                       <button type="button" onClick={() => pick(p.id, undefined)}
                         style={{ border: 0, background: "none", font: "inherit", cursor: "pointer", color: "var(--ink)" }}>
                         {p.name}{helpFor(p.id) && <span title="Has asked for help" style={{ marginLeft: 6 }}>🙋</span>}
+                        {noPhone(p.id) && <span title="No phone set up for reminders - they won't get any" style={{ marginLeft: 6, fontSize: 11, color: "var(--coral)", fontWeight: 700 }}>📵 no phone</span>}
                       </button>
                     </td>
                     {cols.map((c) => {
@@ -180,7 +191,7 @@ export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, o
               return (
                 <button key={p.id ?? "none"} type="button" className="chip-button" onClick={() => pick(p.id, undefined)}
                   style={{ display: "flex", justifyContent: "space-between", width: "100%", ...(active ? { background: "var(--navy)", color: "#fff" } : {}) }}>
-                  <span>{p.name}{helpFor(p.id) ? " 🙋" : ""}</span>
+                  <span>{p.name}{helpFor(p.id) ? " 🙋" : ""}{noPhone(p.id) ? " 📵" : ""}</span>
                   <span style={{ color: active ? "#fff" : o ? "var(--coral)" : "var(--muted)" }}>
                     {[o && `${o} overdue`, d && `${d} today`].filter(Boolean).join(" · ") || "all clear"}
                   </span>

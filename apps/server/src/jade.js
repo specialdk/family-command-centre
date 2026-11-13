@@ -69,7 +69,9 @@ const WRITE_TOOLS = [
       properties: {
         title: { type: "string" },
         member: { type: "string", description: "Whose task it is; omit for unallocated" },
-        due_date: { type: "string", description: "Optional YYYY-MM-DD" },
+        due_date: { type: "string", description: "Optional YYYY-MM-DD - the day it has to be done by" },
+        do_date: { type: "string", description: "Optional YYYY-MM-DD - the day they plan to do it" },
+        do_time: { type: "string", description: "Optional HH:mm, 24 hour - when they plan to do it" },
         notes: { type: "string" }
       },
       required: ["title"]
@@ -408,6 +410,12 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       "  \"needs to\", \"has to\", \"remember to\" - is a task: use add_task, with the day as",
       "  due_date. A calendar item (schedule_event) is only for being somewhere or something",
       "  happening at a set time: a match, an appointment, a dinner. If unsure, it is a task.",
+      "- Adding a task: if they have not said when they will do it, ask once - \"When are you",
+      "  going to do it?\" - and put the answer in do_date and do_time. If they do not know,",
+      "  add it with just the due date; they get a reminder the night before and that morning.",
+      "- Names: only ever use a name from the family list. If what you heard does not match",
+      "  anyone exactly, ask \"Did you mean ...?\" with the closest name. Never guess, and never",
+      "  leave a task unallocated because you were not sure who it was for.",
       "- If you cannot tell who something is for, ask. A task quietly put on the",
       "  wrong person is worse than one more question, and a family stops",
       "  trusting a reminder that nags the wrong child.",
@@ -498,6 +506,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
         kicker: "New task",
         title: input.title,
         detail: [input.member ? `for ${input.member}` : "unallocated",
+                 input.do_date ? `do it ${nice(input.do_date, input.do_time)}` : null,
                  input.due_date ? `due ${nice(input.due_date)}` : null].filter(Boolean).join(" · ")
       };
     }
@@ -608,6 +617,16 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
     };
   }
 
+  /* A name Jade heard that is not in the family: hand it back so she asks,
+     rather than drafting a task for nobody that nobody is reminded about. */
+  async function unknownMember(tool, args) {
+    if (!["add_task", "schedule_event"].includes(tool)) return null;
+    if (!String(args?.member || "").trim() || await findMember(args.member)) return null;
+    const names = (await prisma.familyMember.findMany()).map((m) => m.name).join(", ");
+    return `Not drafted: nobody called "${args.member}" is in this family (${names}). ` +
+           "Ask \"Did you mean ...?\" with the closest name. Do not guess.";
+  }
+
   /* Opened from a reminder: Jade is told which task, and to ask about it. */
   async function aboutLine(taskId) {
     const id = Number(taskId);
@@ -691,6 +710,15 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
         const write = calls.find((c) => WRITE_NAMES.has(c.name));
         if (write) {
           const args = parseArgs(write.arguments);
+          const whoNot = await unknownMember(write.name, args);
+          if (whoNot) {
+            input.push(...reply.output);
+            for (const c of calls) {
+              input.push({ type: "function_call_output", call_id: c.call_id,
+                           output: c === write ? whoNot : "Not run - one thing at a time." });
+            }
+            continue;
+          }
           const missing = missingFrom(write.name, args);
           if (!missing.length) {
             /* The speaker's own task: done or moved now, then the model gets
@@ -820,6 +848,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
     }
 
     if (WRITE_NAMES.has(name)) {
+      const whoNot = await unknownMember(name, args);
+      if (whoNot) return res.json({ output: whoNot });
       const missing = missingFrom(name, args);
       if (missing.length) {
         return res.json({
@@ -881,7 +911,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
             notes: input.notes ? String(input.notes) : null,
             listId: list?.id ?? null,
             memberId: member?.id ?? null,
-            dueAt: input.due_date ? zonedToUtc(input.due_date, "09:00", familyTz) : null
+            dueAt: input.due_date ? zonedToUtc(input.due_date, "09:00", familyTz) : null,
+            scheduledFor: input.do_date ? zonedToUtc(input.do_date, input.do_time || "09:00", familyTz) : null
           },
           include: { member: true, list: true }
         });
