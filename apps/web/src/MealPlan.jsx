@@ -285,3 +285,27 @@ export function CupboardCheck({ api, plan, viewer, onClose, onAdded }) {
     </div>
   );
 }
+
+/* Today screen: tonight's dinner at a glance, tomorrow's underneath. */
+export function TonightCard({ api, version, onPlan }) {
+  const [week, setWeek] = useState(null);
+  useEffect(() => { api(`/api/plan?start=${dayKey(new Date())}`).then(setWeek).catch(() => setWeek(false)); }, [version]);
+  if (!week) return null;
+  const today = dayKey(new Date());
+  const tonight = week.meals.find((m) => m.day === today);
+  const tomorrow = week.meals.find((m) => m.day === addDays(today, 1));
+  return (
+    <section className="task-card" style={{ display: "flex", gap: 14, alignItems: "center", cursor: "pointer" }} onClick={onPlan}>
+      <div style={{ width: 84, height: 84, flex: "0 0 auto", borderRadius: 12, overflow: "hidden" }}>
+        <Thumb recipe={tonight?.recipe} fill />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p className="eyebrow">TONIGHT'S DINNER</p>
+        <h2 style={{ margin: "2px 0 4px", fontSize: 20 }}>{tonight ? tonight.name : "Nothing planned yet"}</h2>
+        <small style={{ color: "var(--muted)" }}>
+          {tomorrow ? `Tomorrow: ${tomorrow.name}` : tonight ? "Tomorrow: not planned yet" : "Tap to plan this week's dinners →"}
+        </small>
+      </div>
+    </section>
+  );
+}

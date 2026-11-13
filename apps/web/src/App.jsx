@@ -8,6 +8,7 @@ import TasksBoard, { TaskSheet, bucket, whenOf } from "./Tasks.jsx";
 import Ideas from "./Ideas.jsx";
 import RecipeBook from "./RecipeBook.jsx";
 import ShoppingList from "./Shopping.jsx";
+import { TonightCard } from "./MealPlan.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -392,6 +393,7 @@ export default function App() {
               toggleTask={toggleTask} toggleChore={toggleChore} onSeeAll={() => setTab("calendar")}
               onSeeTasks={() => setTab("tasks")}
               onOpenTask={(t) => setFocusTaskId(t.id)}
+              dinner={<TonightCard api={api} version={ideasVersion} onPlan={() => setTab("recipes")} />}
             />
           )}
           {tab === "calendar" && (
@@ -666,7 +668,7 @@ function NoticeComposer({ onCancel, onSend }) {
   );
 }
 
-function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, toggleChore, onSeeAll, onOpenTask, onSeeTasks }) {
+function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, toggleChore, onSeeAll, onOpenTask, onSeeTasks, dinner }) {
   const openChores = chores.filter((c) => !c.completed);
   /* Home shows only what needs attention now: overdue first, then today.
      Everything else lives on the Tasks screen. */
@@ -691,6 +693,8 @@ function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, togg
         </div>
         <button onClick={onSeeAll}>Full calendar →</button>
       </section>
+
+      {dinner}
 
       {openChores.length > 0 && (
         <section className="today-reminders">
