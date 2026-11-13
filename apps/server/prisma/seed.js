@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { STARTER_RECIPES } from "./recipes-starter.js";
 
 const prisma = new PrismaClient();
 
@@ -177,6 +178,23 @@ async function main() {
     });
   }
 
+  // --- starter recipes ---------------------------------------------------
+  // Added by title, so new ones in the file arrive on the next deploy and
+  // nothing the family has changed or rated is ever overwritten.
+  for (const r of STARTER_RECIPES) {
+    const exists = await prisma.recipe.findFirst({ where: { title: r.t, source: "STARTER" } });
+    if (exists) continue;
+    await prisma.recipe.create({
+      data: {
+        title: r.t, summary: r.s, source: "STARTER", serves: 4,
+        prepMins: r.p ?? null, cookMins: r.c ?? null,
+        glutenFree: !!r.gf, vegetarian: !!r.v, tags: r.tags || [],
+        ingredients: r.i.map(([qty, item, aisle]) => ({ qty, item, aisle })),
+        method: r.m
+      }
+    });
+  }
+
   const counts = {
     members: await prisma.familyMember.count(),
     calendars: await prisma.calendar.count(),
@@ -184,7 +202,8 @@ async function main() {
     taskLists: await prisma.taskList.count(),
     tasks: await prisma.task.count(),
     shopping: await prisma.shoppingItem.count(),
-    meals: await prisma.meal.count()
+    meals: await prisma.meal.count(),
+    recipes: await prisma.recipe.count()
   };
   console.log("seed complete:", JSON.stringify(counts));
 }

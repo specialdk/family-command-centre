@@ -86,6 +86,7 @@ model FamilyMember {
   reminderLogs      ReminderLog[]
   ideas             Idea[]
   ideaEntries       IdeaEntry[]
+  recipeRatings     RecipeRating[]
 }
 
 /// One per connected provider account. Tokens are encrypted at rest with
@@ -442,4 +443,47 @@ model IdeaEntry {
   createdAt DateTime      @default(now())
 
   @@index([ideaId, createdAt])
+}
+
+// ----------------------------------------------------------------- recipes
+
+/// A recipe the family can plan dinners from. Starts with a built-in set of
+/// everyday dinners; the family adds their own over time. Ingredients and
+/// method are JSON so a recipe reads and edits as one thing:
+///   ingredients: [{ "qty": "500 g", "item": "beef mince", "aisle": "Meat" }]
+///   method:      ["Brown the mince...", "Add the sauce..."]
+model Recipe {
+  id          Int      @id @default(autoincrement())
+  title       String
+  summary     String?
+  ingredients Json
+  method      Json
+  serves      Int      @default(4)
+  prepMins    Int?
+  cookMins    Int?
+  glutenFree  Boolean  @default(false)
+  vegetarian  Boolean  @default(false)
+  tags        String[]
+  /// STARTER = came with the app; FAMILY = added by the family.
+  source      String   @default("FAMILY")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ratings RecipeRating[]
+
+  @@unique([title, source])
+}
+
+/// Thumbs up (1) or down (-1), one per person per recipe. Enough thumbs down
+/// and a recipe stops being suggested - nothing is ever deleted by voting.
+model RecipeRating {
+  id        Int          @id @default(autoincrement())
+  recipeId  Int
+  recipe    Recipe       @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  memberId  Int
+  member    FamilyMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  value     Int
+  updatedAt DateTime     @updatedAt
+
+  @@unique([recipeId, memberId])
 }

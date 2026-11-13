@@ -10,6 +10,7 @@ import { createJadeRouter } from "./jade.js";
 import { createPush } from "./push.js";
 import { createReminders, cleanReminderMins } from "./reminders.js";
 import { createIdeas } from "./ideas.js";
+import { createRecipes } from "./recipes.js";
 import { reduceEvents } from "./visibility.js";
 
 // The server works in the family's time zone, not the host's (Railway is UTC).
@@ -234,6 +235,7 @@ app.patch("/api/members/:id", async (req, res) => {
 
 const ideas = createIdeas({ prisma, familyTz: FAMILY_TZ });
 app.use("/api/ideas", ideas.router);
+app.use("/api/recipes", createRecipes({ prisma }).router);
 app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ, ideas }));
 
 const push = createPush({ prisma });
