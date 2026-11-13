@@ -16,6 +16,19 @@ const PLACE_HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
    duration, because short items get a minimum height and can overlap
    visually when their times do not. Returns extra style per item; an item
    with nothing beside it gets nothing and keeps Rhian's own left/right. */
+/* Shape says what kind it is, colour says whose: a square box for a to-do
+   (filled once done), a round dot for an event - Rhian's own convention
+   from his week cards. Colour alone fails anyone colour-blind. */
+const kindMark = (isTask, done) => (
+  <i aria-hidden="true" style={{
+    display: "inline-block", width: 11, height: 11, marginRight: 6, verticalAlign: "-1px",
+    borderRadius: isTask ? 3 : "50%",
+    border: "2px solid var(--member-color)",
+    background: isTask && !done ? "transparent" : "var(--member-color)",
+    boxSizing: "border-box"
+  }} />
+);
+
 function laneStyles(items) {
   const order = items.map((_, i) => i)
     .sort((a, b) => items[a].top - items[b].top || items[b].height - items[a].height);
@@ -65,7 +78,7 @@ function monthMatrix(cursor) {
   return Array.from({ length: 42 }, (_, i) => addDays(start, i));
 }
 
-export default function Calendar({ events, tasks = [], members, calendars, viewer, onCreate, onUpdate, onDelete, onToggleTask, onSchedule }) {
+export default function Calendar({ events, tasks = [], members, calendars, viewer, onCreate, onUpdate, onDelete, onToggleTask, onOpenTask, onSchedule }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   /* Seven columns do not fit a phone, so open on Day there. Read once at
      mount; after that the view is whatever the person chose. */
@@ -153,7 +166,9 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
      "Busy" never carried its real title, so editing it here would overwrite
      that title with the placeholder. Refuse, and say why. */
   const openEdit = (e) => {
-    if (e.isTask) return onToggleTask?.(e);
+    /* A to-do opens its card (Done / Talk) rather than ticking itself off -
+       one stray tap was silently undoing people's work. Routines still tick. */
+    if (e.isTask) return (e.kind && e.kind !== "TASK") ? onToggleTask?.(e) : onOpenTask?.(e);
     if (e.busy) return setNotice(`"${e.title}" is on a private calendar — it can only be changed where it lives.`);
     setNotice("");
     /* A repeating event is one row. Editing any occurrence edits the series,
@@ -316,7 +331,7 @@ function MonthView({ cursor, onDay, onPick, onAdd, onOpen }) {
                   key={e.id}
                   className={`month-calendar-item ${personClass(e.member)} ${e.isTask ? "is-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
                   onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
-                  title={e.isTask ? `${e.title} — click to tick off` : e.title}
+                  title={e.isTask ? `${e.title} — tap to ` : e.title}
                 >
                   <span className="month-item-time">{e.allDay ? "all day" : hhmm(new Date(e.startsAt))}</span>
                   <span className="person-dot" />
@@ -353,7 +368,7 @@ function WeekView({ cursor, onDay, onAdd, onPick, onOpen }) {
                 key={e.id} type="button"
                 className={`calendar-card ${personClass(e.member)} ${e.isTask ? "task-event" : ""} ${e.recurrenceRule ? "routine" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
                 onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
-                title={e.isTask ? `${e.title} — click to tick off` : e.title}
+                title={e.isTask ? `${e.title} — tap to ` : e.title}
               >
                 {e.isTask && <span className="event-kind"><i />{e.status === "DONE" ? "Done" : "To do"}</span>}
                 <span className="event-time">{e.allDay ? "All day" : hhmm(new Date(e.startsAt))}</span>
@@ -571,15 +586,15 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
                       className={`day-event-block ${personClass(e.member)} ${e.isTask ? "day-event-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
                       style={{ top, height, ...lanes[idx] }}
                       onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
-                      title={e.isTask ? `${e.title} — click to tick off` : e.title}
+                      title={e.isTask ? `${e.title} — tap to ` : e.title}
                     >
                       {short ? (
                         <strong style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {e.isTask ? "To do · " : `${hhmm(s)} · `}{e.title}
+                          {kindMark(e.isTask, e.status === "DONE")}{e.isTask ? "" : `${hhmm(s)} · `}{e.title}
                         </strong>
                       ) : (
                         <>
-                          <span>{e.isTask ? (e.status === "DONE" ? "Done" : "To do") : e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
+                          <span>{kindMark(e.isTask, e.status === "DONE")}{e.isTask ? (e.status === "DONE" ? "Done" : "To do") : e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
                           <strong>{e.title}</strong>
                           {!e.allDay && !e.isTask && <small>{hhmm(s)} – {hhmm(t)}{e.location ? ` · ${e.location}` : ""}</small>}
                         </>

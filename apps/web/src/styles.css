@@ -9193,3 +9193,20 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .more-grid button:hover { background: #f6f8fd; }
 .more-grid button.active { border-color: var(--navy); color: var(--navy); background: #f4f3ff; }
 .more-grid button span { font-size: 20px; }
+
+/* To-dos read as sticky notes, so they can't be mistaken for events.
+   The person's colour stays on the left stripe - colour means "whose",
+   the card means "what kind". Events keep their person-colour fill.
+   Two classes on purpose: a single class loses to Rhian's own rules. */
+.day-event-block.day-event-task,
+.calendar-card.task-event,
+.month-calendar-item.is-task {
+  background: color-mix(in srgb, var(--sun) 30%, white);
+  border-style: dashed;
+  border-left-style: solid;
+}
+.day-event-block.day-event-task.is-done,
+.calendar-card.task-event.is-done,
+.month-calendar-item.is-task.is-done {
+  background: color-mix(in srgb, var(--sun) 10%, white);
+}

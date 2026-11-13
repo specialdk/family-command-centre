@@ -383,6 +383,7 @@ export default function App() {
               viewing={viewer} members={data.members} upcoming={upcoming}
               openTasks={openTasks} chores={myChores}
               toggleTask={toggleTask} toggleChore={toggleChore} onSeeAll={() => setTab("calendar")}
+              onOpenTask={(t) => setFocusTaskId(t.id)}
             />
           )}
           {tab === "calendar" && (
@@ -390,10 +391,11 @@ export default function App() {
               events={scopedEvents} tasks={scheduled} members={data.members} calendars={data.calendars || []}
               viewer={viewer} onCreate={createEvent} onUpdate={updateEvent} onDelete={deleteEvent}
               onToggleTask={(t) => (t.kind && t.kind !== "TASK") ? toggleChore(t) : toggleTask(t)}
+              onOpenTask={(t) => setFocusTaskId(t.id)}
               onSchedule={scheduleTask}
             />
           )}
-          {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} />}
+          {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} onOpen={(t) => setFocusTaskId(t.id)} />}
           {tab === "settings" && (
           <Settings
             members={data.members} tasks={data.tasks}
@@ -435,6 +437,10 @@ export default function App() {
           onClose={() => setFocusTaskId(null)}
           onDone={async (t) => {
             await api(`/api/tasks/${t.id}`, { method: "PATCH", body: JSON.stringify({ status: "DONE", actorId: viewer?.id }) });
+            await load();
+          }}
+          onReopen={async (t) => {
+            await api(`/api/tasks/${t.id}`, { method: "PATCH", body: JSON.stringify({ status: "OPEN", actorId: viewer?.id }) });
             await load();
           }}
           onTalk={(t) => { primeSpeech(); setFocusTaskId(null); setJadeAbout(t); setJadeOpen(true); }}
@@ -621,7 +627,7 @@ function NoticeComposer({ onCancel, onSend }) {
   );
 }
 
-function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, toggleChore, onSeeAll }) {
+function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, toggleChore, onSeeAll, onOpenTask }) {
   const openChores = chores.filter((c) => !c.completed);
   return (
     <>
@@ -681,8 +687,10 @@ function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, togg
           <div className="section-title"><h2>To do</h2><span className="count-badge">{openTasks.length}</span></div>
           <div className="today-task-list">
             {openTasks.slice(0, 8).map((t) => (
-              <button key={t.id} onClick={() => toggleTask(t)}>
-                <span className="task-check" />
+              /* The row opens the task; only the circle ticks it off. */
+              <button key={t.id} onClick={() => onOpenTask(t)}>
+                <span className="task-check" title="Tick off"
+                      onClick={(ev) => { ev.stopPropagation(); toggleTask(t); }} />
                 <div>
                   <strong>{t.title}</strong>
                   <small>{[t.member?.name || "Unallocated", t.dueAt && dayOf(t.dueAt)].filter(Boolean).join(" · ")}</small>
@@ -698,15 +706,17 @@ function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, togg
   );
 }
 
-function Tasks({ open, done, members, toggle }) {
+function Tasks({ open, done, members, toggle, onOpen }) {
   return (
     <div className="today-grid">
       <section className="task-card">
         <div className="section-title"><h2>Open</h2><span className="count-badge">{open.length}</span></div>
         <div className="today-task-list">
           {open.map((t) => (
-            <button key={t.id} onClick={() => toggle(t)}>
-              <span className="task-check" />
+            /* The row opens the task; only the circle ticks it off. */
+            <button key={t.id} onClick={() => onOpen(t)}>
+              <span className="task-check" title="Tick off"
+                    onClick={(ev) => { ev.stopPropagation(); toggle(t); }} />
               <div>
                 <strong>{t.title}</strong>
                 <small>{[t.member?.name || "Unallocated", t.list?.name].filter(Boolean).join(" · ")}</small>
@@ -721,7 +731,7 @@ function Tasks({ open, done, members, toggle }) {
         <div className="section-title"><h2>Recently done</h2><span className="count-badge">{done.length}</span></div>
         <div className="today-task-list">
           {done.slice(0, 12).map((t) => (
-            <button key={t.id} onClick={() => toggle(t)}>
+            <button key={t.id} onClick={() => onOpen(t)}>
               <span className="task-check" style={{ background: "#7fbf8a", borderColor: "#7fbf8a" }}>✓</span>
               <div>
                 <strong style={{ color: "#98a0ad", textDecoration: "line-through" }}>{t.title}</strong>

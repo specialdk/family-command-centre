@@ -39,6 +39,13 @@ import { reduceEvent, WITH_VISIBILITY } from "./visibility.js";
 const MIN = 60 * 1000;
 const TICK_MS = 1 * MIN;
 const CATCH_UP_MS = 15 * MIN;
+// Following up a task that was not ticked off. At its time, the owner gets a
+// nudge; this long after, the parents are told. Settings later.
+const ESCALATE_MINS = 60;
+// Each stage is logged as its own row in ReminderLog, keyed by the task's
+// time plus a few milliseconds, so one task can be reminded, nudged and
+// escalated once each without changing the table.
+const STAGE_MS = { remind: 0, nudge: 1, escalate: 2 };
 const MAX_LEAD = 1440; // one day
 export const NO_REMINDER = -1;
 
@@ -85,7 +92,17 @@ export function createReminders({ prisma, push, familyTz }) {
     const qe = parseHHMM(s.quietEnd, 6 * 60 + 30);
     const horizon = new Date(to.getTime() + MAX_LEAD * MIN);
 
-    const everyone = (await prisma.familyMember.findMany({ select: { id: true } })).map((m) => m.id);
+    const members = await prisma.familyMember.findMany({ select: { id: true, name: true, role: true } });
+    const everyone = members.map((m) => m.id);
+    const parents = members.filter((m) => m.role === "PARENT").map((m) => m.id);
+    const nameOf = (id) => members.find((m) => m.id === id)?.name || "Someone";
+
+    // A follow-up that lands overnight waits for the morning.
+    const outOfQuiet = (d) => {
+      const m = minutesOfDay(d);
+      return inQuiet(m, qs, qe) ? new Date(d.getTime() + ((qe - m + 1440) % 1440) * MIN) : d;
+    };
+    const inWindow = (d) => d && d >= from && d <= to;
 
     // When to send, after the lead time and quiet hours. Null = no reminder.
     // changedAt: when the item was added or last edited. If that was after
@@ -140,33 +157,45 @@ export function createReminders({ prisma, push, familyTz }) {
       });
     }
 
-    // Tasks - open, one-off, assigned, with a time.
+    // Tasks - open, one-off, assigned, with a time. Looks back far enough to
+    // follow up ones whose time has passed without being ticked off.
+    const since = new Date(from.getTime() - ESCALATE_MINS * MIN);
     const tasks = await prisma.task.findMany({
       where: {
         status: "OPEN",
         recurrenceRule: null,
         memberId: { not: null },
         OR: [
-          { scheduledFor: { gte: from, lte: horizon } },
-          { scheduledFor: null, dueAt: { gte: from, lte: horizon } },
+          { scheduledFor: { gte: since, lte: horizon } },
+          { scheduledFor: null, dueAt: { gte: since, lte: horizon } },
         ],
       },
     });
 
     for (const t of tasks) {
       const start = t.scheduledFor ?? t.dueAt;
-      const sendAt = sendTimeFor(start, t.reminderMins, t.updatedAt);
-      if (!sendAt || sendAt < from || sendAt > to) continue;
-      out.push({
-        type: "TASK",
-        itemId: t.id,
-        title: t.title,
-        location: null,
-        start,
-        sendAt,
-        due: !t.scheduledFor,
-        memberIds: [t.memberId],
-      });
+      const base = {
+        type: "TASK", itemId: t.id, title: t.title, location: null, start,
+        due: !t.scheduledFor, owner: nameOf(t.memberId),
+      };
+
+      // 1. Before: the ordinary reminder.
+      const remindAt = sendTimeFor(start, t.reminderMins, t.updatedAt);
+      if (inWindow(remindAt)) out.push({ ...base, stage: "remind", sendAt: remindAt, memberIds: [t.memberId] });
+
+      // Follow-ups only for things a reminder was wanted for.
+      if ((t.reminderMins ?? s.reminderLeadMins) < 0) continue;
+
+      // 2. At the time, still open: nudge the owner.
+      const nudgeAt = outOfQuiet(start);
+      if (inWindow(nudgeAt)) out.push({ ...base, stage: "nudge", sendAt: nudgeAt, memberIds: [t.memberId] });
+
+      // 3. An hour on, still open: tell the parents (not the owner twice).
+      const escalateAt = outOfQuiet(new Date(start.getTime() + ESCALATE_MINS * MIN));
+      const tellParents = parents.filter((id) => id !== t.memberId);
+      if (tellParents.length && inWindow(escalateAt)) {
+        out.push({ ...base, stage: "escalate", sendAt: escalateAt, memberIds: tellParents });
+      }
     }
 
     return out.sort((a, b) => a.sendAt - b.sendAt);
@@ -177,6 +206,14 @@ export function createReminders({ prisma, push, familyTz }) {
   /// "In 30 minutes · at 4:30 pm · Oval 3". Worked out from the real time
   /// left, so a reminder held over quiet hours does not say "in 30 minutes".
   function payloadFor(r, now) {
+    const url = r.type === "TASK" ? `/?task=${r.itemId}` : `/?event=${r.itemId}`;
+    const tag = `rem-${r.stage || "remind"}-${r.type}-${r.itemId}-${r.start.toISOString()}`;
+    if (r.stage === "nudge") {
+      return { title: `Still to do: ${r.title}`, body: `It was on for ${clock(r.start)}. Done, or later?`, url, tag };
+    }
+    if (r.stage === "escalate") {
+      return { title: `Not done yet: ${r.title}`, body: `${r.owner}'s · was on for ${clock(r.start)}`, url, tag };
+    }
     const left = Math.round((r.start - now) / MIN);
     const when =
       left <= 1 ? "Now"
@@ -189,8 +226,8 @@ export function createReminders({ prisma, push, familyTz }) {
     return {
       title: r.title,
       body: bits.join(" · "),
-      url: r.type === "TASK" ? `/?task=${r.itemId}` : `/?event=${r.itemId}`,
-      tag: `rem-${r.type}-${r.itemId}-${r.start.toISOString()}`,
+      url,
+      tag,
     };
   }
 
@@ -210,7 +247,10 @@ export function createReminders({ prisma, push, familyTz }) {
         for (const memberId of r.memberIds) {
           try {
             await prisma.reminderLog.create({
-              data: { memberId, itemType: r.type, itemId: r.itemId, occursAt: r.start },
+              data: {
+                memberId, itemType: r.type, itemId: r.itemId,
+                occursAt: new Date(r.start.getTime() + (STAGE_MS[r.stage] || 0)),
+              },
             });
           } catch (err) {
             if (err.code === "P2002") { summary.alreadySent++; continue; }
@@ -273,6 +313,7 @@ export function createReminders({ prisma, push, familyTz }) {
     const names = new Map((await prisma.familyMember.findMany()).map((m) => [m.id, m.name]));
     res.json(items.map((r) => ({
       type: r.type,
+      stage: r.stage || "remind",
       itemId: r.itemId,
       title: r.title,
       who: r.memberIds.map((id) => names.get(id)),

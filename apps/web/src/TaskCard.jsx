@@ -20,7 +20,7 @@ const when = (t) => {
   return "No time set";
 };
 
-export default function TaskCard({ task, onClose, onDone, onTalk }) {
+export default function TaskCard({ task, onClose, onDone, onReopen, onTalk }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -55,6 +55,12 @@ export default function TaskCard({ task, onClose, onDone, onTalk }) {
               <>
                 <p className="sheet-note" style={{ marginTop: 16 }}>Already ticked off. Nice.</p>
                 <div className="sheet-actions">
+                  {onReopen && (
+                    <button type="button" className="chip-button" disabled={busy}
+                      onClick={async () => { setBusy(true); try { await onReopen(task); onClose(); } catch (e) { setError(e.message); setBusy(false); } }}>
+                      Not done — reopen
+                    </button>
+                  )}
                   <button type="button" className="chip-button" onClick={onClose}>Close</button>
                 </div>
               </>
