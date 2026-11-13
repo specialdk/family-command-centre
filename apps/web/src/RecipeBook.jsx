@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useWeekPlan, WeekStrip, DaySheet, PlanButtons, CupboardCheck, dayName } from "./MealPlan.jsx";
 
 /* The family's recipe book. Each card: title, a line, quick facts, and a
    thumbs up / down from whoever is viewing. The family's score decides the
@@ -58,7 +59,13 @@ function Facts({ r }) {
   );
 }
 
-export default function RecipeBook({ api, viewer, members }) {
+export default function RecipeBook({ api, viewer, members, onShopping }) {
+  const plan = useWeekPlan(api);
+  const [choosing, setChoosing] = useState(null);   // a night waiting for a recipe
+  const [dayOpen, setDayOpen] = useState(null);     // { day, meal }
+  const [cupboard, setCupboard] = useState(false);
+  const [note, setNote] = useState("");
+  const listRef = useRef(null);
   const [recipes, setRecipes] = useState(null);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
@@ -114,7 +121,9 @@ export default function RecipeBook({ api, viewer, members }) {
 
   const grid = { display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", marginTop: 12 };
   const card = (r) => (
-    <button key={r.id} type="button" onClick={() => setOpenId(r.id)}
+    <button key={r.id} type="button" draggable
+      onDragStart={(e) => { e.dataTransfer.setData("text/recipe-id", String(r.id)); e.dataTransfer.setData("text/plain", String(r.id)); e.dataTransfer.effectAllowed = "copy"; }}
+      onClick={() => { if (choosing) { plan.put(r.id, choosing); setChoosing(null); } else setOpenId(r.id); }}
       style={{ textAlign: "left", cursor: "pointer", border: "1px solid var(--line)", borderRadius: 14, background: "#fff",
                padding: "10px 10px 12px", display: "grid", gap: 7, font: "inherit", color: "var(--ink)", alignContent: "start" }}>
       <Picture r={r} height={150} />
@@ -129,7 +138,14 @@ export default function RecipeBook({ api, viewer, members }) {
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
-      <section className="agenda-card">
+      <WeekStrip plan={plan} choosing={choosing} onMakeList={() => setCupboard(true)}
+        onDay={(d, m) => {
+          if (m) { setChoosing(null); setDayOpen({ day: d, meal: m }); }
+          else { setChoosing(choosing === d ? null : d); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+        }} />
+      {note && <div className="alert" style={{ background: "#eefaf1", borderColor: "var(--mint)", color: "var(--ink)" }}>{note}</div>}
+
+      <section className="agenda-card" ref={listRef}>
         <div className="section-title">
           <h2>Recipes</h2>
           <span className="count-badge">{recipes?.length ?? "…"}</span>
@@ -160,6 +176,12 @@ export default function RecipeBook({ api, viewer, members }) {
           </div>
         )}
         {error && <div className="alert" style={{ marginTop: 10 }}>{error}</div>}
+        {choosing && (
+          <div style={{ position: "sticky", top: 8, zIndex: 5, marginTop: 12, padding: "10px 12px", borderRadius: 12, background: "var(--navy)", color: "#fff", display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ flex: 1 }}>Tap a recipe for <strong>{dayName(choosing, true)}</strong></span>
+            <button type="button" className="chip-button" onClick={() => setChoosing(null)}>Cancel</button>
+          </div>
+        )}
       </section>
 
       <section className="task-card">
@@ -178,13 +200,23 @@ export default function RecipeBook({ api, viewer, members }) {
         </section>
       )}
 
-      {openId && <RecipeSheet id={openId} api={api} viewer={viewer} members={members} onRate={rate} busy={busy} onClose={() => setOpenId(null)} onPicture={loadList}
+      {dayOpen && (
+        <DaySheet day={dayOpen.day} meal={dayOpen.meal} onClose={() => setDayOpen(null)}
+          onOpen={() => { setOpenId(dayOpen.meal.recipeId); setDayOpen(null); }}
+          onSwap={() => { setChoosing(dayOpen.day); setDayOpen(null); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+          onRemove={async () => { await plan.remove(dayOpen.meal); setDayOpen(null); }} />
+      )}
+      {cupboard && (
+        <CupboardCheck api={api} plan={plan} viewer={viewer} onClose={() => setCupboard(false)}
+          onAdded={async () => { await onShopping?.(); setNote("Added to the Shopping list ✓"); setTimeout(() => setNote(""), 5000); }} />
+      )}
+      {openId && <RecipeSheet plan={plan} id={openId} api={api} viewer={viewer} members={members} onRate={rate} busy={busy} onClose={() => setOpenId(null)} onPicture={loadList}
                                summary={recipes?.find((r) => r.id === openId)} />}
     </div>
   );
 }
 
-function RecipeSheet({ id, api, viewer, members, onClose, onRate, busy, summary, onPicture }) {
+function RecipeSheet({ plan, id, api, viewer, members, onClose, onRate, busy, summary, onPicture }) {
   const [r, setR] = useState(null);
   const [painting, setPainting] = useState(false);
   const [picNote, setPicNote] = useState("");
@@ -235,6 +267,7 @@ function RecipeSheet({ id, api, viewer, members, onClose, onRate, busy, summary,
             {live.glutenFree && (
               <p className="sheet-note" style={{ marginTop: 10 }}>Gluten free with ordinary ingredients — where it says "check label", brands vary.</p>
             )}
+            {plan && <PlanButtons plan={plan} recipeId={live.id} />}
             <div className="sheet-actions" style={{ marginTop: 16 }}>
               <button type="button" className="chip-button" onClick={onClose}>Close</button>
             </div>

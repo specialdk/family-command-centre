@@ -11,6 +11,7 @@ import { createPush } from "./push.js";
 import { createReminders, cleanReminderMins } from "./reminders.js";
 import { createIdeas } from "./ideas.js";
 import { createRecipes } from "./recipes.js";
+import { createPlan, createShopping } from "./plan.js";
 import { reduceEvents } from "./visibility.js";
 
 // The server works in the family's time zone, not the host's (Railway is UTC).
@@ -236,6 +237,8 @@ app.patch("/api/members/:id", async (req, res) => {
 const ideas = createIdeas({ prisma, familyTz: FAMILY_TZ });
 app.use("/api/ideas", ideas.router);
 app.use("/api/recipes", createRecipes({ prisma }).router);
+app.use("/api/plan", createPlan({ prisma, familyTz: FAMILY_TZ }).router);
+app.use("/api/shopping", createShopping({ prisma }).router);
 app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ, ideas }));
 
 const push = createPush({ prisma });
@@ -513,10 +516,11 @@ app.post("/api/meals", async (req, res) => {
 });
 
 app.post("/api/shopping", async (req, res) => {
-  const { name, quantity, store } = req.body || {};
+  const { name, quantity, store, aisle, actorId } = req.body || {};
   if (!name) return res.status(400).json({ error: "Item name is required" });
   const item = await prisma.shoppingItem.create({
-    data: { name: String(name).trim(), quantity: quantity || null, store: store || null }
+    data: { name: String(name).trim(), quantity: quantity || null, store: store || null,
+            aisle: aisle || null, addedById: actorId ? Number(actorId) : null }
   });
   res.status(201).json(item);
 });
@@ -524,7 +528,10 @@ app.post("/api/shopping", async (req, res) => {
 app.patch("/api/shopping/:id", async (req, res) => {
   const item = await prisma.shoppingItem.update({
     where: { id: Number(req.params.id) },
-    data: { checked: Boolean(req.body.checked) }
+    data: {
+      ...(req.body.checked !== undefined ? { checked: Boolean(req.body.checked) } : {}),
+      ...(req.body.aisle !== undefined ? { aisle: req.body.aisle || null } : {})
+    }
   });
   res.json(item);
 });

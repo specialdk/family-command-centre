@@ -7,6 +7,7 @@ import TaskCard from "./TaskCard.jsx";
 import TasksBoard, { TaskSheet, bucket, whenOf } from "./Tasks.jsx";
 import Ideas from "./Ideas.jsx";
 import RecipeBook from "./RecipeBook.jsx";
+import ShoppingList from "./Shopping.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -425,8 +426,8 @@ export default function App() {
               onTalk={(idea) => { primeSpeech(); setJadeAbout(null); setJadeIdea(idea); setJadeOpen(true); }}
             />
           )}
-          {tab === "recipes"  && <RecipeBook api={api} viewer={viewer} members={data.members} />}
-          {tab === "shopping" && <Shopping items={data.shopping} toggle={toggleShopping} />}
+          {tab === "recipes"  && <RecipeBook api={api} viewer={viewer} members={data.members} onShopping={load} />}
+          {tab === "shopping" && <ShoppingList api={api} items={data.shopping} viewer={viewer} onChange={load} />}
           {!current.ready && <Placeholder item={current} />}
         </div>
       </div>

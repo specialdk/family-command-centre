@@ -237,6 +237,10 @@ model ShoppingItem {
   name      String
   quantity  String?
   store     String?
+  /// Where it is in the shop - Produce, Meat, Dairy... - so the list reads in walking order.
+  aisle     String?
+  /// What it's for, e.g. "Spaghetti bolognese, Lasagne".
+  note      String?
   checked   Boolean       @default(false)
   position  Int           @default(0)
   addedById Int?
@@ -249,6 +253,9 @@ model Meal {
   name       String
   notes      String?
   plannedFor DateTime?
+  /// The recipe this dinner is, when it came from the recipe book.
+  recipeId   Int?
+  recipe     Recipe?   @relation(fields: [recipeId], references: [id], onDelete: SetNull)
   createdAt  DateTime  @default(now())
 }
 
@@ -475,6 +482,7 @@ model Recipe {
   updatedAt   DateTime @updatedAt
 
   ratings RecipeRating[]
+  meals   Meal[]
 
   @@unique([title, source])
 }

@@ -97,7 +97,7 @@ function offsetMs(date, tz) {
   }).formatToParts(date).filter((x) => x.type !== "literal").map((x) => [x.type, x.value]));
   return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - date.getTime();
 }
-function zonedToUtc(dateStr, timeStr, tz) {
+export function zonedToUtc(dateStr, timeStr, tz) {
   const [y, m, d] = String(dateStr).split("-").map(Number);
   const [hh, mm] = String(timeStr || "09:00").split(":").map(Number);
   const naive = Date.UTC(y, m - 1, d, hh || 0, mm || 0);
