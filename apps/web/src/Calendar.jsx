@@ -103,13 +103,24 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
      end so it can sit in the grid, then goes through the same expansion -
      chores carry recurrence rules too. */
   const taskItems = useMemo(() => tasks
-    .filter((t) => t.scheduledFor)
+    .filter((t) => t.scheduledFor || t.dueAt)
     .map((t) => {
-      const s = new Date(t.scheduledFor);
+      if (t.scheduledFor) {
+        const s = new Date(t.scheduledFor);
+        return {
+          ...t, isTask: true,
+          startsAt: t.scheduledFor,
+          endsAt: new Date(s.getTime() + (t.durationMins || 30) * 60000).toISOString()
+        };
+      }
+      /* Due by a day but not yet given a time: shown on its due day as an
+         all-day "Due" note, so a deadline is on the calendar without anyone
+         having to schedule it first. It stays in Ready to schedule too. */
+      const day = new Date(t.dueAt); day.setHours(0, 0, 0, 0);
       return {
-        ...t, isTask: true,
-        startsAt: t.scheduledFor,
-        endsAt: new Date(s.getTime() + (t.durationMins || 30) * 60000).toISOString()
+        ...t, isTask: true, dueOnly: true, allDay: true,
+        startsAt: day.toISOString(),
+        endsAt: new Date(day.getTime() + 24 * 3600000 - 60000).toISOString()
       };
     }), [tasks]);
 
@@ -370,7 +381,7 @@ function WeekView({ cursor, onDay, onAdd, onPick, onOpen }) {
                 onClick={(ev) => { ev.stopPropagation(); onOpen(e); }}
                 title={e.isTask ? `${e.title} — tap to ` : e.title}
               >
-                {e.isTask && <span className="event-kind"><i />{e.status === "DONE" ? "Done" : "To do"}</span>}
+                {e.isTask && <span className="event-kind"><i />{e.status === "DONE" ? "Done" : e.dueOnly ? "Due" : "To do"}</span>}
                 <span className="event-time">{e.allDay ? "All day" : hhmm(new Date(e.startsAt))}</span>
                 {/* h3, not strong: Rhian styled .calendar-card h3 as the title block. */}
                 <h3>{e.title}</h3>
@@ -513,7 +524,7 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
               <div className="agenda-body">
                 <strong>{e.title}</strong>
                 <small>
-                  {[e.isTask ? (e.status === "DONE" ? "Done" : "To do")
+                  {[e.isTask ? (e.status === "DONE" ? "Done" : e.dueOnly ? "Due" : "To do")
                              : e.allDay ? null : `until ${hhmm(t)}`,
                     e.location, e.member?.name || "Family"].filter(Boolean).join(" \u00b7 ")}
                 </small>
@@ -594,7 +605,7 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
                         </strong>
                       ) : (
                         <>
-                          <span>{kindMark(e.isTask, e.status === "DONE")}{e.isTask ? (e.status === "DONE" ? "Done" : "To do") : e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
+                          <span>{kindMark(e.isTask, e.status === "DONE")}{e.isTask ? (e.status === "DONE" ? "Done" : e.dueOnly ? "Due today" : "To do") : e.allDay ? "All day" : e.busy ? "Busy" : "Meeting / appt"}</span>
                           <strong>{e.title}</strong>
                           {!e.allDay && !e.isTask && <small>{hhmm(s)} – {hhmm(t)}{e.location ? ` · ${e.location}` : ""}</small>}
                         </>
