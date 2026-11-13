@@ -1,6 +1,7 @@
 import express from "express";
 import OpenAI from "openai";
 import { reduceEvents, WITH_VISIBILITY } from "./visibility.js";
+import { IDEA_TOOLS, IDEA_NAMES } from "./ideas.js";
 
 /* Jade — the family's assistant.
 
@@ -186,7 +187,7 @@ const REALTIME_VOICE = process.env.JADE_VOICE || "marin";
    required and additionalProperties false; half of these are genuinely
    optional - a task may have no due date, an event no location - and
    forcing them would make the model invent values to satisfy a schema. */
-const TOOL_BASE = [...READ_TOOLS, ...WRITE_TOOLS].map((t) => ({
+const TOOL_BASE = [...READ_TOOLS, ...WRITE_TOOLS, ...IDEA_TOOLS].map((t) => ({
   type: "function",
   name: t.name,
   description: t.description,
@@ -227,7 +228,7 @@ function zonedToUtc(dateStr, timeStr, tz) {
 const todayIn = (tz) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()); // YYYY-MM-DD
 
-export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }) {
+export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, ideas = null }) {
   const router = express.Router();
   /* `openai` is injectable so the tests can run the whole route - tools,
      proposals, applying - without a key or a network call. */
@@ -333,7 +334,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     return { today, who, diary, todo, saidAs };
   }
 
-  function systemPrompt(s, { spoken = false, speaker = null, about = null } = {}) {
+  function systemPrompt(s, { spoken = false, speaker = null, about = null, ideaList = null } = {}) {
     /* Who is in the room. Without this "my game on Saturday" has nothing to
        resolve against, and a task lands on whoever the screen last showed.
        On a personal phone or Rhian's desk this is reliable; on a shared
@@ -367,6 +368,16 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       "",
       "Open tasks:",
       s.todo,
+      ...(ideaList ? [
+        "",
+        "Ideas on the family's board:",
+        ideaList,
+        "",
+        "Ideas: when someone tells you an idea, let them talk and save it with save_idea once they",
+        "say they are done. \"Add to the X idea\" is update_idea - rewrite its title, short line and",
+        "summary to cover everything so far. A short line is about fifteen words; a summary is three",
+        "to five sentences. Only the person who raised an idea can turn it into tasks.",
+      ] : []),
       "",
       "How you work:",
       "- Answer from what you have above when it is enough. Use check_calendar or",
@@ -604,7 +615,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       const speaker = await findMember(req.body?.speaker);
       const instructions = systemPrompt(s, {
         speaker: speaker?.name || null,
-        about: await aboutLine(req.body?.aboutTaskId)
+        about: (await aboutLine(req.body?.aboutTaskId)) || (ideas ? await ideas.aboutLine(req.body?.idea, speaker) : null),
+        ideaList: ideas ? await ideas.listForPrompt(speaker) : null
       });
       let proposal = null;
       let applied = null;
@@ -625,6 +637,27 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
 
         const calls = (reply.output || []).filter((o) => o.type === "function_call");
         if (!calls.length) break;
+
+        /* Ideas are their own: saving and updating happen straight away (the
+           idea is theirs), turning one into tasks comes back as a proposal. */
+        const ideaCall = ideas && calls.find((c) => IDEA_NAMES.has(c.name));
+        if (ideaCall) {
+          const soFar = input
+            .filter((m) => m && m.role && typeof m.content === "string")
+            .map((m) => `${m.role === "user" ? (speaker?.name || "Them") : "Jade"}: ${m.content}`)
+            .join("\n");
+          const r = await ideas.runTool(ideaCall.name, parseArgs(ideaCall.arguments), {
+            speaker, transcript: soFar, aboutIdeaId: req.body?.idea?.id
+          });
+          if (r.applied) applied = r.applied;
+          if (r.proposal) { proposal = r.proposal; break; }
+          input.push(...reply.output);
+          for (const c of calls) {
+            input.push({ type: "function_call_output", call_id: c.call_id,
+                         output: c === ideaCall ? r.output : "Not run - one thing at a time." });
+          }
+          continue;
+        }
 
         const write = calls.find((c) => WRITE_NAMES.has(c.name));
         if (write) {
@@ -708,7 +741,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
             instructions: systemPrompt(s, {
               spoken: true,
               speaker: speaker?.name || null,
-              about: await aboutLine(req.body?.aboutTaskId)
+              about: (await aboutLine(req.body?.aboutTaskId)) || (ideas ? await ideas.aboutLine(req.body?.idea, speaker) : null),
+        ideaList: ideas ? await ideas.listForPrompt(speaker) : null
             }),
             audio: { output: { voice: REALTIME_VOICE } },
             tools: REALTIME_TOOLS,
@@ -740,6 +774,20 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
   router.post("/tool", async (req, res) => {
     const name = String(req.body?.name || "");
     const args = parseArgs(req.body?.arguments);
+
+    if (IDEA_NAMES.has(name)) {
+      if (!ideas) return res.json({ output: "Ideas are not available here." });
+      try {
+        return res.json(await ideas.runTool(name, args, {
+          speaker: await findMember(req.body?.speaker),
+          transcript: String(req.body?.transcript || "").slice(0, 20000),
+          aboutIdeaId: req.body?.ideaId
+        }));
+      } catch (e) {
+        console.error("Jade idea tool failed:", e?.message || e);
+        return res.json({ output: "That could not be saved just now. Say so." });
+      }
+    }
 
     if (WRITE_NAMES.has(name)) {
       const missing = missingFrom(name, args);
@@ -914,6 +962,12 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
           kind: "CHANGE", authorId: actorId, entity: "EVENT", entityId: event.id
         });
         return res.json({ ok: true, applied: "move_item", kind: "event", event });
+      }
+
+      if (tool === "ideas_to_tasks") {
+        if (!ideas) return res.status(400).json({ error: "Ideas are not available." });
+        const r = await ideas.applyTasks(input, actorId);
+        return r.ok ? res.json(r) : res.status(403).json({ error: r.error });
       }
 
       if (tool === "complete_task") {

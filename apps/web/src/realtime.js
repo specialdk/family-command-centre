@@ -51,7 +51,7 @@ function functionCallsIn(msg, names) {
  * onEvent gets {kind, ...} for the UI: "listening", "thinking", "speaking",
  * "said" (what the person said), "reply" (what Jade said), "proposal".
  */
-export async function startConversation({ onEvent, onError, speaker = null, aboutTaskId = null }) {
+export async function startConversation({ onEvent, onError, speaker = null, aboutTaskId = null, idea = null }) {
   if (!canTalk) throw new Error("This browser cannot hold a conversation.");
 
   /* The microphone first: if it is refused, nothing else is worth doing, and
@@ -67,7 +67,7 @@ export async function startConversation({ onEvent, onError, speaker = null, abou
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ speaker, aboutTaskId })
+    body: JSON.stringify({ speaker, aboutTaskId, idea })
   }).then(async (r) => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || d.error || "Could not start a conversation.");
@@ -84,7 +84,9 @@ export async function startConversation({ onEvent, onError, speaker = null, abou
   const channel = pc.createDataChannel("oai-events");
   /* Opened from a reminder: Jade speaks first ("Bins - done, or later?"),
      so the person only has to answer. */
-  if (aboutTaskId) channel.addEventListener("open", () => send({ type: "response.create" }));
+  if (aboutTaskId || idea) channel.addEventListener("open", () => send({ type: "response.create" }));
+  /* What was said, both ways, so a saved idea keeps the actual conversation. */
+  const lines = [];
   const handled = new Set();
   const callNames = new Map();   // call_id -> tool name, from the announcement
   let stopped = false;
@@ -110,8 +112,10 @@ export async function startConversation({ onEvent, onError, speaker = null, abou
     if (typeof saidText === "string" && saidText.trim()) {
       if (/input_audio_transcription/.test(msg.type || "")) {
         onEvent?.({ kind: "said", text: saidText.trim() });
+        lines.push(`${speaker || "Them"}: ${saidText.trim()}`);
       } else if (/output_audio_transcript\.done/.test(msg.type || "")) {
         onEvent?.({ kind: "reply", text: saidText.trim() });
+        lines.push(`Jade: ${saidText.trim()}`);
       }
     }
 
@@ -126,7 +130,10 @@ export async function startConversation({ onEvent, onError, speaker = null, abou
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ name: call.name, arguments: call.arguments, speaker })
+          body: JSON.stringify({
+            name: call.name, arguments: call.arguments, speaker,
+            transcript: lines.join("\n"), ideaId: idea?.id ?? null
+          })
         }).then((r) => r.json());
       } catch { /* keep the fallback text */ }
 

@@ -20,7 +20,7 @@ const when = (t) => {
   return "No time set";
 };
 
-export default function TaskCard({ task, onClose, onDone, onReopen, onTalk }) {
+export default function TaskCard({ task, onClose, onDone, onReopen, onEdit, onTalk }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -68,6 +68,9 @@ export default function TaskCard({ task, onClose, onDone, onReopen, onTalk }) {
               <>
                 {error && <div className="alert">{error}</div>}
                 <div className="sheet-actions" style={{ marginTop: 18 }}>
+                  {onEdit && (
+                    <button type="button" className="chip-button" onClick={() => onEdit(task)} disabled={busy}>Edit</button>
+                  )}
                   <button type="button" className="chip-button" onClick={() => onTalk(task)} disabled={busy}>
                     🎙 Talk to Jade
                   </button>

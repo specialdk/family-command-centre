@@ -84,6 +84,8 @@ model FamilyMember {
   noticeReads      NotificationRead[]
   pushSubscriptions PushSubscription[]
   reminderLogs      ReminderLog[]
+  ideas             Idea[]
+  ideaEntries       IdeaEntry[]
 }
 
 /// One per connected provider account. Tokens are encrypted at rest with
@@ -207,6 +209,9 @@ model Task {
   needsHelp    Boolean   @default(false)
   /// Minutes before scheduledFor (or dueAt) to send a reminder. Null = family default.
   reminderMins Int?
+  /// The idea this task came out of, if any.
+  ideaId       Int?
+  idea         Idea?     @relation(fields: [ideaId], references: [id], onDelete: SetNull)
   recurrenceRule String?
   position       Int     @default(0)
 
@@ -375,4 +380,66 @@ model FamilySetting {
   quietStart       String   @default("21:30")
   quietEnd         String   @default("06:30")
   updatedAt        DateTime @updatedAt
+}
+
+// ------------------------------------------------------------------- ideas
+
+enum IdeaStatus {
+  NEW
+  DISCUSSING
+  PLANNED
+  DONE
+  PARKED
+}
+
+/// Who can see an idea. A surprise for someone's birthday must not show up
+/// on their own screen.
+enum IdeaVisibility {
+  FAMILY
+  PARENTS
+  PRIVATE
+}
+
+/// Something half-decided, usually talked out to Jade. The board shows the
+/// title and the short line; the rest only when it is opened.
+model Idea {
+  id         Int            @id @default(autoincrement())
+  title      String
+  /// About fifteen words - what the board shows.
+  shortLine  String
+  /// A few sentences - what the card shows when opened. Rewritten each
+  /// time the idea is added to, so it always reads as where it is now.
+  summary    String?
+  status     IdeaStatus     @default(NEW)
+  visibility IdeaVisibility @default(FAMILY)
+  authorId   Int?
+  author     FamilyMember?  @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  entries IdeaEntry[]
+  tasks   Task[]
+
+  @@index([status])
+}
+
+enum IdeaEntryKind {
+  CONVERSATION
+  NOTE
+}
+
+/// The history of an idea: each conversation with Jade (what was actually
+/// said, because a summary drops nuance) and each quick addition, such as
+/// "Maddie can't do the first week".
+model IdeaEntry {
+  id        Int           @id @default(autoincrement())
+  ideaId    Int
+  idea      Idea          @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  kind      IdeaEntryKind @default(NOTE)
+  authorId  Int?
+  author    FamilyMember? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  text      String
+  createdAt DateTime      @default(now())
+
+  @@index([ideaId, createdAt])
 }

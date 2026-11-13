@@ -4,6 +4,8 @@ import Jade from "./Jade.jsx";
 import { canSpeak, primeSpeech, speak } from "./voice.js";
 import Reminders from "./Reminders.jsx";
 import TaskCard from "./TaskCard.jsx";
+import TasksBoard, { TaskSheet, bucket, whenOf } from "./Tasks.jsx";
+import Ideas from "./Ideas.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -12,7 +14,7 @@ const NAV = [
   { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true, primary: true },
   { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true, primary: true },
   { key: "recipes",     emoji: "🍲",        label: "Recipes",     ready: true },
-  { key: "ideas",       emoji: "💡",        label: "Ideas" },
+  { key: "ideas",       emoji: "💡",        label: "Ideas",       ready: true },
   { key: "inputs",      emoji: "📥",        label: "Inputs",      parentOnly: true },
   { key: "finances",    emoji: "💰",        label: "Finances",    parentOnly: true },
   { key: "investments", emoji: "📈",        label: "Investments", parentOnly: true },
@@ -84,11 +86,14 @@ export default function App() {
   const [moreOpen, setMoreOpen]   = useState(false);
   const [jadeOpen, setJadeOpen]     = useState(false);
   const [jadeAbout, setJadeAbout]   = useState(null);    // the task Jade was opened about
+  const [jadeIdea, setJadeIdea]     = useState(null);    // { mode: "new" } or { id, title }
+  const [ideasVersion, setIdeasVersion] = useState(0);   // bumped so the board re-reads after Jade saves
   const [focusTaskId, setFocusTaskId] = useState(null);  // the task a reminder opened
+  const [editingTask, setEditingTask] = useState(null);  // null = closed, {} = new, a task = editing
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const load = async () => setData(await api("/api/dashboard"));
+  const load = async () => { setData(await api("/api/dashboard")); setIdeasVersion((v) => v + 1); };
 
   /* A reminder opens the app on its item: /?task=9 or /?event=8. Read once,
      then the address is cleaned so a reload does not reopen it. If the app
@@ -383,6 +388,7 @@ export default function App() {
               viewing={viewer} members={data.members} upcoming={upcoming}
               openTasks={openTasks} chores={myChores}
               toggleTask={toggleTask} toggleChore={toggleChore} onSeeAll={() => setTab("calendar")}
+              onSeeTasks={() => setTab("tasks")}
               onOpenTask={(t) => setFocusTaskId(t.id)}
             />
           )}
@@ -395,7 +401,12 @@ export default function App() {
               onSchedule={scheduleTask}
             />
           )}
-          {tab === "tasks"    && <Tasks open={openTasks} done={doneTasks} members={data.members} toggle={toggleTask} onOpen={(t) => setFocusTaskId(t.id)} />}
+          {tab === "tasks"    && (
+            <TasksBoard
+              tasks={data.tasks || []} members={data.members} viewer={viewer} everyone={everyone}
+              onOpen={(t) => setFocusTaskId(t.id)} onToggle={toggleTask} onAdd={() => setEditingTask({})}
+            />
+          )}
           {tab === "settings" && (
           <Settings
             members={data.members} tasks={data.tasks}
@@ -407,6 +418,12 @@ export default function App() {
             }}
           />
         )}
+          {tab === "ideas" && (
+            <Ideas
+              api={api} viewer={viewer} members={data.members} version={ideasVersion}
+              onTalk={(idea) => { primeSpeech(); setJadeAbout(null); setJadeIdea(idea); setJadeOpen(true); }}
+            />
+          )}
           {tab === "recipes"  && <Recipes meals={data.meals} />}
           {tab === "shopping" && <Shopping items={data.shopping} toggle={toggleShopping} />}
           {!current.ready && <Placeholder item={current} />}
@@ -427,7 +444,8 @@ export default function App() {
           viewer={viewer}
           members={data.members}
           about={jadeAbout}
-          onClose={() => { setJadeOpen(false); setJadeAbout(null); }}
+          idea={jadeIdea}
+          onClose={() => { setJadeOpen(false); setJadeAbout(null); setJadeIdea(null); }}
           onChanged={load}
         />
       )}
@@ -439,11 +457,30 @@ export default function App() {
             await api(`/api/tasks/${t.id}`, { method: "PATCH", body: JSON.stringify({ status: "DONE", actorId: viewer?.id }) });
             await load();
           }}
+          onEdit={(t) => { setFocusTaskId(null); setEditingTask(t); }}
           onReopen={async (t) => {
             await api(`/api/tasks/${t.id}`, { method: "PATCH", body: JSON.stringify({ status: "OPEN", actorId: viewer?.id }) });
             await load();
           }}
           onTalk={(t) => { primeSpeech(); setFocusTaskId(null); setJadeAbout(t); setJadeOpen(true); }}
+        />
+      )}
+      {editingTask && data && (
+        <TaskSheet
+          task={editingTask.id ? editingTask : null}
+          members={data.members} viewer={viewer}
+          onCancel={() => setEditingTask(null)}
+          onSave={async (id, payload) => {
+            await api(id ? `/api/tasks/${id}` : "/api/tasks", {
+              method: id ? "PATCH" : "POST",
+              body: JSON.stringify({ ...payload, actorId: viewer?.id })
+            });
+            await load();
+          }}
+          onDelete={async (id) => {
+            await api(`/api/tasks/${id}`, { method: "DELETE", body: JSON.stringify({ actorId: viewer?.id }) });
+            await load();
+          }}
         />
       )}
       {composing && <NoticeComposer onCancel={() => setComposing(false)} onSend={postNotice} />}
@@ -627,8 +664,16 @@ function NoticeComposer({ onCancel, onSend }) {
   );
 }
 
-function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, toggleChore, onSeeAll, onOpenTask }) {
+function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, toggleChore, onSeeAll, onOpenTask, onSeeTasks }) {
   const openChores = chores.filter((c) => !c.completed);
+  /* Home shows only what needs attention now: overdue first, then today.
+     Everything else lives on the Tasks screen. */
+  const now = new Date();
+  const urgent = openTasks
+    .filter((t) => ["overdue", "today"].includes(bucket(t, now)))
+    .sort((a, b) => new Date(whenOf(a)) - new Date(whenOf(b)));
+  const overdue = urgent.filter((t) => bucket(t, now) === "overdue").length;
+  const later = openTasks.length - urgent.length;
   return (
     <>
       <section className="today-hero">
@@ -636,8 +681,9 @@ function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, togg
           <p className="eyebrow" style={{ color: "#f0c987" }}>YOUR DAY</p>
           <h2>{greeting()}{viewing ? `, ${viewing.name}` : ""}</h2>
           <p>
-            {openTasks.length
-              ? `${openTasks.length} thing${openTasks.length === 1 ? "" : "s"} to move forward today.`
+            {urgent.length
+              ? `${urgent.length} thing${urgent.length === 1 ? "" : "s"} to move forward today` +
+                (overdue ? `, ${overdue} overdue.` : ".")
               : "Everything is clear for today."}
           </p>
         </div>
@@ -684,21 +730,33 @@ function Today({ viewing, members, upcoming, openTasks, chores, toggleTask, togg
         </section>
 
         <section className="task-card">
-          <div className="section-title"><h2>To do</h2><span className="count-badge">{openTasks.length}</span></div>
+          <div className="section-title">
+            <h2>To do today</h2>
+            <button onClick={onSeeTasks}>All tasks →</button>
+          </div>
           <div className="today-task-list">
-            {openTasks.slice(0, 8).map((t) => (
+            {urgent.slice(0, 8).map((t) => (
               /* The row opens the task; only the circle ticks it off. */
               <button key={t.id} onClick={() => onOpenTask(t)}>
                 <span className="task-check" title="Tick off"
                       onClick={(ev) => { ev.stopPropagation(); toggleTask(t); }} />
                 <div>
-                  <strong>{t.title}</strong>
-                  <small>{[t.member?.name || "Unallocated", t.dueAt && dayOf(t.dueAt)].filter(Boolean).join(" · ")}</small>
+                  <strong>{t.title}{t.needsHelp && <span title="Asked for help" style={{ marginLeft: 6 }}>🙋</span>}</strong>
+                  <small style={bucket(t, now) === "overdue" ? { color: "var(--coral)", fontWeight: 800 } : undefined}>
+                    {[bucket(t, now) === "overdue" ? "Overdue" : null, t.member?.name || "Unallocated",
+                      whenOf(t) && `${dayOf(whenOf(t))} ${timeOf(whenOf(t))}`].filter(Boolean).join(" · ")}
+                  </small>
                 </div>
                 <span style={{ color: "#c3c7d0" }}>›</span>
               </button>
             ))}
-            {!openTasks.length && <p style={{ color: "var(--muted)" }}>Everything is done for today.</p>}
+            {!urgent.length && <p style={{ color: "var(--muted)" }}>Nothing due today.</p>}
+            {later > 0 && (
+              <p style={{ color: "var(--muted)", fontSize: 13, margin: "8px 0 0" }}>
+                {later} more coming up later — <button onClick={onSeeTasks}
+                  style={{ border: 0, background: "none", padding: 0, color: "var(--navy)", fontWeight: 800, cursor: "pointer" }}>see all tasks</button>
+              </p>
+            )}
           </div>
         </section>
       </div>

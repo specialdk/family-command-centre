@@ -28,6 +28,7 @@ const APPLY_LABEL = {
   schedule_event: "Put it on the calendar",
   move_item: "Move it",
   complete_task: "Mark it done",
+  ideas_to_tasks: "Create the tasks",
   notify_family: "Send it to everyone"
 };
 
@@ -36,10 +37,11 @@ const DONE_LABEL = {
   schedule_event: "It's on the calendar.",
   move_item: "Moved.",
   complete_task: "Ticked off.",
+  ideas_to_tasks: "Tasks created.",
   add_task: "Added to the list."
 };
 
-export default function Jade({ viewer, members = [], about = null, onClose, onChanged }) {
+export default function Jade({ viewer, members = [], about = null, idea = null, onClose, onChanged }) {
   /* name -> how it is said, for the speech engine only. */
   const pronunciations = React.useMemo(
     () => Object.fromEntries(
@@ -118,13 +120,18 @@ export default function Jade({ viewer, members = [], about = null, onClose, onCh
       liveRef.current = await startConversation({
         speaker: viewer?.name || null,
         aboutTaskId: about?.id ?? null,
+        idea,
         onEvent: (e) => {
           if (e.kind === "said")      { setHeard(e.text); setAsked(e.text); }
           if (e.kind === "reply")     { setReply(e.text); setHeard(""); }
           if (e.kind === "proposal")  setProposal(e.proposal);
           if (e.kind === "applied") {
-            setUndo(e.applied);
-            setDone(`${e.applied.kind === "complete" ? "Ticked off" : "Moved"}: ${e.applied.title}`);
+            if (e.applied.kind === "idea") {
+              setDone(`On the ideas board: ${e.applied.title}`);
+            } else {
+              setUndo(e.applied);
+              setDone(`${e.applied.kind === "complete" ? "Ticked off" : "Moved"}: ${e.applied.title}`);
+            }
             onChanged?.();
           }
           if (e.kind === "ended")     { setPhase(""); liveRef.current = null; }
@@ -163,12 +170,16 @@ export default function Jade({ viewer, members = [], about = null, onClose, onCh
     setBusy(true); setError(""); setDone(""); setProposal(null); setAsked(message); setHeard("");
     try {
       const data = await api("/api/jade", {
-        message, history, speaker: viewer?.name || null, aboutTaskId: about?.id ?? null
+        message, history, speaker: viewer?.name || null, aboutTaskId: about?.id ?? null, idea
       });
       setReply(data.reply || "");
       setProposal(data.proposal || null);
       setHistory(data.history || []);
-      if (data.applied) { setUndo(data.applied); onChanged?.(); }
+      if (data.applied) {
+        if (data.applied.kind === "idea") setDone(`On the ideas board: ${data.applied.title}`);
+        else setUndo(data.applied);
+        onChanged?.();
+      }
       /* A proposal is not read out. It is a thing to look at and approve,
          and hearing "shall I send this to everyone" is not consent. */
       if (spoken && !mute && !data.proposal) speak(data.reply, { pronunciations });
@@ -283,6 +294,11 @@ export default function Jade({ viewer, members = [], about = null, onClose, onCh
         {about && (
           <p className="eyebrow" style={{ textAlign: "center", margin: "-4px 0 8px" }}>ABOUT · {about.title}</p>
         )}
+        {idea && (
+          <p className="eyebrow" style={{ textAlign: "center", margin: "-4px 0 8px" }}>
+            {idea.mode === "new" ? "NEW IDEA" : `IDEA · ${idea.title}`}
+          </p>
+        )}
 
         <div className="assistant-reply">
           {/* `done` outranks `reply`: once something has been applied, the
@@ -296,6 +312,8 @@ export default function Jade({ viewer, members = [], about = null, onClose, onCh
             : done ? done
             : reply ? reply
             : about ? `${about.title} — done, or later?`
+            : idea?.mode === "new" ? "Tell me the idea. Say \"that's it\" when you're done."
+            : idea ? `Picking up ${idea.title}…`
             : `Ask me what's on, or what still needs doing${viewer?.name ? `, ${viewer.name}` : ""}.`}
         </div>
 
@@ -309,7 +327,7 @@ export default function Jade({ viewer, members = [], about = null, onClose, onCh
           <div className="proposal-card">
             <span>{proposal.kicker}</span>
             <strong>{proposal.title}</strong>
-            {proposal.detail && <small>{proposal.detail}</small>}
+            {proposal.detail && <small style={{ whiteSpace: "pre-line" }}>{proposal.detail}</small>}
             <div className="sheet-actions" style={{ marginTop: 12 }}>
               <button type="button" className="chip-button" onClick={() => setProposal(null)}>
                 No thanks

@@ -9,6 +9,7 @@ import { PrismaClient } from "@prisma/client";
 import { createJadeRouter } from "./jade.js";
 import { createPush } from "./push.js";
 import { createReminders, cleanReminderMins } from "./reminders.js";
+import { createIdeas } from "./ideas.js";
 import { reduceEvents } from "./visibility.js";
 
 // The server works in the family's time zone, not the host's (Railway is UTC).
@@ -231,7 +232,9 @@ app.patch("/api/members/:id", async (req, res) => {
   res.json(member);
 });
 
-app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ }));
+const ideas = createIdeas({ prisma, familyTz: FAMILY_TZ });
+app.use("/api/ideas", ideas.router);
+app.use("/api/jade", createJadeRouter({ prisma, notify, whenLabel, familyTz: FAMILY_TZ, ideas }));
 
 const push = createPush({ prisma });
 app.use("/api/push", push.router);
@@ -241,7 +244,7 @@ app.use("/api/reminders", reminders.router);
 reminders.start();
 
 app.post("/api/tasks", async (req, res) => {
-  const { title, notes, listId, kind, dueAt, scheduledFor, memberId } = req.body || {};
+  const { title, notes, listId, kind, dueAt, scheduledFor, memberId, needsHelp } = req.body || {};
   if (!String(title || "").trim()) return res.status(400).json({ error: "Task title is required" });
 
   // Quick capture sends no list, so fall back to Unallocated.
@@ -259,7 +262,9 @@ app.post("/api/tasks", async (req, res) => {
       listId: resolvedList,
       dueAt: dueAt ? new Date(dueAt) : null,
       scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
-      memberId: memberId ? Number(memberId) : null
+      memberId: memberId ? Number(memberId) : null,
+      reminderMins: cleanReminderMins(req.body?.reminderMins),
+      needsHelp: Boolean(needsHelp)
     },
     include: { member: true, list: true }
   });
@@ -283,6 +288,7 @@ app.patch("/api/tasks/:id", async (req, res) => {
   if ("scheduledFor" in b) data.scheduledFor = b.scheduledFor ? new Date(b.scheduledFor) : null;
   if ("durationMins" in b) data.durationMins = b.durationMins ? Number(b.durationMins) : null;
   if ("needsHelp" in b)    data.needsHelp = Boolean(b.needsHelp);
+  if ("reminderMins" in b) data.reminderMins = cleanReminderMins(b.reminderMins);
 
   const before = await prisma.task.findUnique({ where: { id } });
   if (!before) return res.status(404).json({ error: "No such task" });
@@ -305,7 +311,13 @@ app.patch("/api/tasks/:id", async (req, res) => {
   res.json(task);
 });
 
+/* Only a parent can delete a task. Who is acting comes from the "Viewing as"
+   picker until per-person sign-in exists - the same trust as the rest. */
 app.delete("/api/tasks/:id", async (req, res) => {
+  const actor = req.body?.actorId
+    ? await prisma.familyMember.findUnique({ where: { id: Number(req.body.actorId) } })
+    : null;
+  if (actor?.role !== "PARENT") return res.status(403).json({ error: "Only a parent can delete a task." });
   await prisma.task.delete({ where: { id: Number(req.params.id) } });
   res.json({ ok: true });
 });
