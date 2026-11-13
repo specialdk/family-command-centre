@@ -102,7 +102,7 @@ const WRITE_TOOLS = [
       "Give only what is changing: to move 5pm to 6pm, send start_time and no date. " +
       "Take the title from the week you were already given - a few words of it is enough, " +
       "and you do not need the person to repeat it.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         title: { type: "string", description: "Enough of its title to find it. Partial is fine." },
@@ -110,6 +110,21 @@ const WRITE_TOOLS = [
         start_time: { type: "string", description: "HH:mm, 24 hour. Omit to keep the time." },
         duration_minutes: { type: "number", description: "Only if the length is changing." },
         location: { type: "string", description: "Only if where it happens is changing." }
+      },
+      required: ["title"]
+    }
+  },
+  {
+    name: "complete_task",
+    description:
+      "Mark a task as done. Use this when someone says they have done something, finished " +
+      "it, or that it is sorted. If it is the speaker's own task it is ticked off straight " +
+      "away; anyone else's comes back as a proposal to approve. Take the title from the " +
+      "tasks you were given - a few words of it is enough.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Enough of its title to find it. Partial is fine." }
       },
       required: ["title"]
     }
@@ -140,6 +155,7 @@ const REQUIRED = {
   add_task: ["title"],
   schedule_event: ["title", "date"],
   move_item: ["title"],
+  complete_task: ["title"],
   notify_family: ["title"]
 };
 function missingFrom(tool, args) {
@@ -317,7 +333,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     return { today, who, diary, todo, saidAs };
   }
 
-  function systemPrompt(s, { spoken = false, speaker = null } = {}) {
+  function systemPrompt(s, { spoken = false, speaker = null, about = null } = {}) {
     /* Who is in the room. Without this "my game on Saturday" has nothing to
        resolve against, and a task lands on whoever the screen last showed.
        On a personal phone or Rhian's desk this is reliable; on a shared
@@ -345,6 +361,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       `The family: ${s.who}.`,
       "",
       ...whoIsAsking,
+      ...(about ? [about, ""] : []),
       "The next seven days:",
       s.diary,
       "",
@@ -354,10 +371,13 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       "How you work:",
       "- Answer from what you have above when it is enough. Use check_calendar or",
       "  list_tasks when you need more than a week, or a specific person's detail.",
-      "- You cannot change anything yourself. add_task, schedule_event and",
-      "  notify_family propose a change for a person to approve. When you use one,",
-      "  say plainly what you have drafted and that it needs their go-ahead.",
-      "- Never claim something has been added, scheduled or sent. It has not been.",
+      "- complete_task and move_item on the speaker's OWN task happen straight",
+      "  away, and the tool result says so - then confirm it in a few words",
+      "  (\"Done, bins ticked off\"). Everything else - add_task, schedule_event,",
+      "  notify_family, and anything belonging to someone else - is only drafted",
+      "  for a person to approve. When a tool result says it was drafted, say so",
+      "  and that it needs their go-ahead.",
+      "- Never claim something has been done unless the tool result says it was.",
       "- If you cannot tell who something is for, ask. A task quietly put on the",
       "  wrong person is worse than one more question, and a family stops",
       "  trusting a reminder that nags the wrong child.",
@@ -466,10 +486,103 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
                 ].filter(Boolean).join(" ")
       };
     }
+    if (tool === "complete_task") {
+      return { kicker: "Mark done", title: input.title, detail: "Someone else's task - tick it off for them?" };
+    }
     if (tool === "notify_family") {
       return { kicker: "Notice to the whole family", title: input.title, detail: input.body || "" };
     }
     return { kicker: "Proposal", title: tool, detail: "" };
+  }
+
+  // ------------------------------------------------------- own tasks, now --
+  /* Voice is the point, and saying "I've done the bins" then having to tap
+     Approve defeats it. So two things happen straight away, with no card:
+     ticking off, and moving, a task that belongs to the person speaking.
+     Anything of anyone else's, and anything that adds or announces, is still
+     drafted for approval. The result carries what it was before, so the
+     screen can offer Undo if Jade misheard.
+
+     Who is speaking comes from the "Viewing as" picker on that device until
+     per-person sign-in exists - the same trust the rest of the app runs on. */
+  const dayOf = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: familyTz }).format(d);
+  const timeOf = (d) => new Intl.DateTimeFormat("en-GB", {
+    timeZone: familyTz, hour: "2-digit", minute: "2-digit", hour12: false
+  }).format(d);
+
+  function pick(pool, title) {
+    const needle = String(title || "").trim().toLowerCase();
+    const exact = pool.filter((x) => x.title.trim().toLowerCase() === needle);
+    if (exact.length === 1) return { hit: exact[0], many: [] };
+    const partial = pool.filter((x) => x.title.toLowerCase().includes(needle));
+    if (partial.length === 1) return { hit: partial[0], many: [] };
+    return { hit: null, many: partial };
+  }
+
+  /* Returns { output, applied } when it handled the call itself, or null to
+     fall through to the ordinary proposal. */
+  async function tryDirect(tool, input, speaker) {
+    if (!speaker || !["complete_task", "move_item"].includes(tool)) return null;
+    const open = await prisma.task.findMany({ where: { status: "OPEN" }, take: 200 });
+
+    if (tool === "complete_task") {
+      const { hit, many } = pick(open, input.title);
+      if (!hit) {
+        return {
+          output: many.length > 1
+            ? `More than one matches: ${many.slice(0, 4).map((t) => t.title).join(", ")}. Ask which one.`
+            : `There is no open task called "${input.title}".`
+        };
+      }
+      if (hit.memberId !== speaker.id) return null;          // someone else's: draft it
+      await prisma.task.update({ where: { id: hit.id }, data: { status: "DONE", completedAt: new Date() } });
+      await prisma.activityLog.create({
+        data: { action: "task.done", entity: "Task", entityId: hit.id, memberId: speaker.id, detail: { via: "jade" } }
+      }).catch(() => {});
+      return {
+        output: `Done - "${hit.title}" is ticked off. Confirm it in a few words.`,
+        applied: { kind: "complete", taskId: hit.id, title: hit.title, before: { status: "OPEN", completedAt: null } }
+      };
+    }
+
+    // move_item: straight away only for one of the speaker's own tasks.
+    const events = await prisma.event.findMany({ where: { cancelled: false }, take: 200 });
+    const { hit } = pick([
+      ...open.map((t) => ({ ...t, kind: "task" })),
+      ...events.map((ev) => ({ ...ev, kind: "event" }))
+    ], input.title);
+    if (!hit || hit.kind !== "task" || hit.memberId !== speaker.id) return null;
+
+    const current = hit.scheduledFor || hit.dueAt;
+    const date = input.date || (current ? dayOf(current) : todayIn(familyTz));
+    const time = input.start_time || (current ? timeOf(current) : "09:00");
+    const startsAt = zonedToUtc(date, time, familyTz);
+    const mins = Number(input.duration_minutes || hit.durationMins || 30);
+    await prisma.task.update({ where: { id: hit.id }, data: { scheduledFor: startsAt, durationMins: mins } });
+    await prisma.activityLog.create({
+      data: { action: "task.move", entity: "Task", entityId: hit.id, memberId: speaker.id, detail: { via: "jade" } }
+    }).catch(() => {});
+    return {
+      output: `Moved - "${hit.title}" is now ${stamp(startsAt, false)}. Confirm it in a few words.`,
+      applied: {
+        kind: "move", taskId: hit.id, title: hit.title,
+        before: { scheduledFor: hit.scheduledFor, durationMins: hit.durationMins }
+      }
+    };
+  }
+
+  /* Opened from a reminder: Jade is told which task, and to ask about it. */
+  async function aboutLine(taskId) {
+    const id = Number(taskId);
+    if (!Number.isInteger(id)) return null;
+    const t = await prisma.task.findUnique({ where: { id }, include: { member: true } });
+    if (!t) return null;
+    if (t.status === "DONE") return `They opened you about "${t.title}", which is already ticked off. Say so briefly.`;
+    return [
+      `They opened you from the reminder about their task "${t.title}" (${taskWhen(t)}).`,
+      "Open by asking, in one short sentence, whether it is done or when they will do it.",
+      "If it is done, use complete_task. If they want it later, use move_item with the new time."
+    ].join(" ");
   }
 
   // ------------------------------------------------------------------ ask --
@@ -489,8 +602,12 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     try {
       const s = await snapshot();
       const speaker = await findMember(req.body?.speaker);
-      const instructions = systemPrompt(s, { speaker: speaker?.name || null });
+      const instructions = systemPrompt(s, {
+        speaker: speaker?.name || null,
+        about: await aboutLine(req.body?.aboutTaskId)
+      });
       let proposal = null;
+      let applied = null;
       let said = "";
 
       /* Four passes is plenty: read, read again, then answer. A write tool
@@ -514,6 +631,15 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
           const args = parseArgs(write.arguments);
           const missing = missingFrom(write.name, args);
           if (!missing.length) {
+            /* The speaker's own task: done or moved now, then the model gets
+               another pass to say so. */
+            const direct = await tryDirect(write.name, args, speaker);
+            if (direct) {
+              if (direct.applied) applied = direct.applied;
+              input.push(...reply.output);
+              input.push({ type: "function_call_output", call_id: write.call_id, output: direct.output });
+              continue;
+            }
             proposal = { tool: write.name, input: args, ...describeProposal(write.name, args) };
             break;
           }
@@ -543,6 +669,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
       res.json({
         reply: said || (proposal ? "I've drafted that below — have a look before it goes anywhere." : "…"),
         proposal,
+        applied,
         /* Only the plain turns are handed back to the browser. Tool calls and
            their results are this request's working-out, not the conversation. */
         history: input.filter((m) => m && typeof m.content === "string" && m.role).slice(-8)
@@ -578,7 +705,11 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
           session: {
             type: "realtime",
             model: REALTIME_MODEL,
-            instructions: systemPrompt(s, { spoken: true, speaker: speaker?.name || null }),
+            instructions: systemPrompt(s, {
+              spoken: true,
+              speaker: speaker?.name || null,
+              about: await aboutLine(req.body?.aboutTaskId)
+            }),
             audio: { output: { voice: REALTIME_VOICE } },
             tools: REALTIME_TOOLS,
             tool_choice: "auto"
@@ -619,6 +750,14 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
                   "there rather than asking anyone to repeat it. Only ask the person if " +
                   "two things genuinely match, or if the new time is the part you do not have."
         });
+      }
+      /* The speaker's own task is done or moved now, not drafted. */
+      try {
+        const direct = await tryDirect(name, args, await findMember(req.body?.speaker));
+        if (direct) return res.json(direct);
+      } catch (e) {
+        console.error("Jade direct change failed:", e?.message || e);
+        return res.json({ output: "That could not be changed just now. Say so." });
       }
       const proposal = { tool: name, input: args, ...describeProposal(name, args) };
       return res.json({
@@ -777,6 +916,28 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
         return res.json({ ok: true, applied: "move_item", kind: "event", event });
       }
 
+      if (tool === "complete_task") {
+        const needle = String(input.title || "").trim().toLowerCase();
+        const open = await prisma.task.findMany({ where: { status: "OPEN" }, take: 200 });
+        const { hit, many } = pick(open, needle);
+        if (!hit) {
+          return res.status(many.length > 1 ? 409 : 404).json({
+            error: many.length > 1
+              ? `More than one matches: ${many.slice(0, 4).map((t) => t.title).join(", ")}. Which one?`
+              : `Nothing open called "${input.title}" was found.`
+          });
+        }
+        const task = await prisma.task.update({
+          where: { id: hit.id },
+          data: { status: "DONE", completedAt: new Date() },
+          include: { member: true, list: true }
+        });
+        await prisma.activityLog.create({
+          data: { action: "task.done", entity: "Task", entityId: task.id, memberId: actorId, detail: { via: "jade" } }
+        }).catch(() => {});
+        return res.json({ ok: true, applied: "complete_task", task });
+      }
+
       if (tool === "notify_family") {
         const notice = await notify({
           title: String(input.title).trim(),
@@ -790,6 +951,25 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai }
     } catch (e) {
       console.error("Jade apply failed:", e.message);
       res.status(500).json({ error: "That could not be applied." });
+    }
+  });
+
+  /* Undo for a change Jade made straight away. Puts back exactly what the
+     change reported as "before", and only those fields. */
+  router.post("/undo", async (req, res) => {
+    const id = Number(req.body?.taskId);
+    const b = req.body?.before || {};
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Nothing to undo." });
+    const data = {};
+    if ("status" in b)       data.status = b.status === "DONE" ? "DONE" : "OPEN";
+    if ("completedAt" in b)  data.completedAt = b.completedAt ? new Date(b.completedAt) : null;
+    if ("scheduledFor" in b) data.scheduledFor = b.scheduledFor ? new Date(b.scheduledFor) : null;
+    if ("durationMins" in b) data.durationMins = b.durationMins == null ? null : Number(b.durationMins);
+    try {
+      const task = await prisma.task.update({ where: { id }, data });
+      res.json({ ok: true, task });
+    } catch (e) {
+      res.status(404).json({ error: "That task is no longer there." });
     }
   });
 

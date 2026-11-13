@@ -43,7 +43,7 @@ function functionCallsIn(msg) {
  * onEvent gets {kind, ...} for the UI: "listening", "thinking", "speaking",
  * "said" (what the person said), "reply" (what Jade said), "proposal".
  */
-export async function startConversation({ onEvent, onError, speaker = null }) {
+export async function startConversation({ onEvent, onError, speaker = null, aboutTaskId = null }) {
   if (!canTalk) throw new Error("This browser cannot hold a conversation.");
 
   /* The microphone first: if it is refused, nothing else is worth doing, and
@@ -59,7 +59,7 @@ export async function startConversation({ onEvent, onError, speaker = null }) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ speaker })
+    body: JSON.stringify({ speaker, aboutTaskId })
   }).then(async (r) => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || d.error || "Could not start a conversation.");
@@ -74,6 +74,9 @@ export async function startConversation({ onEvent, onError, speaker = null }) {
 
   /* Created before the offer, because the channel has to be in the SDP. */
   const channel = pc.createDataChannel("oai-events");
+  /* Opened from a reminder: Jade speaks first ("Bins - done, or later?"),
+     so the person only has to answer. */
+  if (aboutTaskId) channel.addEventListener("open", () => send({ type: "response.create" }));
   const handled = new Set();
   let stopped = false;
 
@@ -114,11 +117,12 @@ export async function startConversation({ onEvent, onError, speaker = null }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ name: call.name, arguments: call.arguments })
+          body: JSON.stringify({ name: call.name, arguments: call.arguments, speaker })
         }).then((r) => r.json());
       } catch { /* keep the fallback text */ }
 
       if (result.proposal) onEvent?.({ kind: "proposal", proposal: result.proposal });
+      if (result.applied)  onEvent?.({ kind: "applied", applied: result.applied });
 
       send({
         type: "conversation.item.create",

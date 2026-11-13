@@ -75,7 +75,9 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
       const open = wins.find((w) => new URL(w.url).origin === self.location.origin);
-      if (open) return open.focus().then(() => open.navigate?.(url)).catch(() => {});
+      /* Already open: tell the app which item, rather than navigating -
+         iPhone does not support navigate() from here. */
+      if (open) { open.postMessage({ type: "open-item", url }); return open.focus(); }
       return self.clients.openWindow(url);
     })
   );

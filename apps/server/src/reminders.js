@@ -37,7 +37,7 @@ import { expandEvents } from "../../web/src/rrule.js";
 import { reduceEvent, WITH_VISIBILITY } from "./visibility.js";
 
 const MIN = 60 * 1000;
-const TICK_MS = 5 * MIN;
+const TICK_MS = 1 * MIN;
 const CATCH_UP_MS = 15 * MIN;
 const MAX_LEAD = 1440; // one day
 export const NO_REMINDER = -1;
@@ -88,10 +88,14 @@ export function createReminders({ prisma, push, familyTz }) {
     const everyone = (await prisma.familyMember.findMany({ select: { id: true } })).map((m) => m.id);
 
     // When to send, after the lead time and quiet hours. Null = no reminder.
-    const sendTimeFor = (start, reminderMins) => {
+    // changedAt: when the item was added or last edited. If that was after
+    // the normal send time, remind straight away - something added at short
+    // notice ("pick Jack up at 4", entered at 3:50) needs it most.
+    const sendTimeFor = (start, reminderMins, changedAt) => {
       const lead = reminderMins ?? s.reminderLeadMins;
       if (lead < 0) return null;
       let sendAt = new Date(start.getTime() - Math.min(lead, MAX_LEAD) * MIN);
+      if (changedAt && changedAt > sendAt && changedAt < start) sendAt = new Date(changedAt);
       const m = minutesOfDay(sendAt);
       if (inQuiet(m, qs, qe) && !inQuiet(minutesOfDay(start), qs, qe)) {
         sendAt = new Date(sendAt.getTime() + ((qe - m + 1440) % 1440) * MIN);
@@ -122,7 +126,7 @@ export function createReminders({ prisma, push, familyTz }) {
       if (start < from || start > horizon) continue;
       const shown = reduceEvent(occ);
       if (!shown || shown.busy) continue;
-      const sendAt = sendTimeFor(start, occ.reminderMins);
+      const sendAt = sendTimeFor(start, occ.reminderMins, occ.updatedAt ? new Date(occ.updatedAt) : null);
       if (!sendAt || sendAt < from || sendAt > to) continue;
       out.push({
         type: "EVENT",
@@ -151,7 +155,7 @@ export function createReminders({ prisma, push, familyTz }) {
 
     for (const t of tasks) {
       const start = t.scheduledFor ?? t.dueAt;
-      const sendAt = sendTimeFor(start, t.reminderMins);
+      const sendAt = sendTimeFor(start, t.reminderMins, t.updatedAt);
       if (!sendAt || sendAt < from || sendAt > to) continue;
       out.push({
         type: "TASK",
@@ -185,7 +189,7 @@ export function createReminders({ prisma, push, familyTz }) {
     return {
       title: r.title,
       body: bits.join(" · "),
-      url: "/",
+      url: r.type === "TASK" ? `/?task=${r.itemId}` : `/?event=${r.itemId}`,
       tag: `rem-${r.type}-${r.itemId}-${r.start.toISOString()}`,
     };
   }

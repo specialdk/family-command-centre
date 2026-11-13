@@ -3,6 +3,7 @@ import Calendar from "./Calendar.jsx";
 import Jade from "./Jade.jsx";
 import { canSpeak, primeSpeech, speak } from "./voice.js";
 import Reminders from "./Reminders.jsx";
+import TaskCard from "./TaskCard.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -82,10 +83,31 @@ export default function App() {
   const [history, setHistory]     = useState(null);   // null = closed
   const [moreOpen, setMoreOpen]   = useState(false);
   const [jadeOpen, setJadeOpen]     = useState(false);
+  const [jadeAbout, setJadeAbout]   = useState(null);    // the task Jade was opened about
+  const [focusTaskId, setFocusTaskId] = useState(null);  // the task a reminder opened
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = async () => setData(await api("/api/dashboard"));
+
+  /* A reminder opens the app on its item: /?task=9 or /?event=8. Read once,
+     then the address is cleaned so a reload does not reopen it. If the app
+     is already open, the service worker sends the same link as a message
+     instead. */
+  useEffect(() => {
+    const openFrom = (href) => {
+      try {
+        const q = new URL(href, window.location.origin).searchParams;
+        if (q.get("task")) setFocusTaskId(Number(q.get("task")));
+        else if (q.get("event")) setTab("calendar");
+      } catch { /* not a link we understand */ }
+    };
+    openFrom(window.location.href);
+    if (window.location.search) window.history.replaceState(null, "", window.location.pathname);
+    const onMessage = (e) => { if (e.data?.type === "open-item") openFrom(e.data.url); };
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => {
     api("/api/session")
@@ -385,8 +407,20 @@ export default function App() {
         <Jade
           viewer={viewer}
           members={data.members}
-          onClose={() => setJadeOpen(false)}
+          about={jadeAbout}
+          onClose={() => { setJadeOpen(false); setJadeAbout(null); }}
           onChanged={load}
+        />
+      )}
+      {focusTaskId && data && (
+        <TaskCard
+          task={(data.tasks || []).find((t) => t.id === focusTaskId) || null}
+          onClose={() => setFocusTaskId(null)}
+          onDone={async (t) => {
+            await api(`/api/tasks/${t.id}`, { method: "PATCH", body: JSON.stringify({ status: "DONE", actorId: viewer?.id }) });
+            await load();
+          }}
+          onTalk={(t) => { primeSpeech(); setFocusTaskId(null); setJadeAbout(t); setJadeOpen(true); }}
         />
       )}
       {composing && <NoticeComposer onCancel={() => setComposing(false)} onSend={postNotice} />}

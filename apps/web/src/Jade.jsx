@@ -27,6 +27,7 @@ const APPLY_LABEL = {
   add_task: "Add the task",
   schedule_event: "Put it on the calendar",
   move_item: "Move it",
+  complete_task: "Mark it done",
   notify_family: "Send it to everyone"
 };
 
@@ -34,10 +35,11 @@ const DONE_LABEL = {
   notify_family: "Sent to the family.",
   schedule_event: "It's on the calendar.",
   move_item: "Moved.",
+  complete_task: "Ticked off.",
   add_task: "Added to the list."
 };
 
-export default function Jade({ viewer, members = [], onClose, onChanged }) {
+export default function Jade({ viewer, members = [], about = null, onClose, onChanged }) {
   /* name -> how it is said, for the speech engine only. */
   const pronunciations = React.useMemo(
     () => Object.fromEntries(
@@ -57,6 +59,9 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
   const [hearing, setHearing]   = useState(false);
   const [heard, setHeard]       = useState("");
   const [mute, setMute]         = useState(false);
+  /* A change Jade made straight away (the speaker's own task), kept so it
+     can be undone if she misheard. */
+  const [undo, setUndo]         = useState(null);
   /* The live conversation, when there is one: a WebRTC session where Jade
      hears and speaks for itself. `phase` is what the orb is showing -
      listening, thinking or speaking - which is the only honest way to tell
@@ -112,10 +117,16 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
     try {
       liveRef.current = await startConversation({
         speaker: viewer?.name || null,
+        aboutTaskId: about?.id ?? null,
         onEvent: (e) => {
           if (e.kind === "said")      { setHeard(e.text); setAsked(e.text); }
           if (e.kind === "reply")     { setReply(e.text); setHeard(""); }
           if (e.kind === "proposal")  setProposal(e.proposal);
+          if (e.kind === "applied") {
+            setUndo(e.applied);
+            setDone(`${e.applied.kind === "complete" ? "Ticked off" : "Moved"}: ${e.applied.title}`);
+            onChanged?.();
+          }
           if (e.kind === "ended")     { setPhase(""); liveRef.current = null; }
           if (["listening", "thinking", "speaking"].includes(e.kind)) setPhase(e.kind);
         },
@@ -151,10 +162,13 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
     spokenRef.current = spoken;
     setBusy(true); setError(""); setDone(""); setProposal(null); setAsked(message); setHeard("");
     try {
-      const data = await api("/api/jade", { message, history, speaker: viewer?.name || null });
+      const data = await api("/api/jade", {
+        message, history, speaker: viewer?.name || null, aboutTaskId: about?.id ?? null
+      });
       setReply(data.reply || "");
       setProposal(data.proposal || null);
       setHistory(data.history || []);
+      if (data.applied) { setUndo(data.applied); onChanged?.(); }
       /* A proposal is not read out. It is a thing to look at and approve,
          and hearing "shall I send this to everyone" is not consent. */
       if (spoken && !mute && !data.proposal) speak(data.reply, { pronunciations });
@@ -197,6 +211,19 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
       setError(e.message);
     } finally {
       setApplying(false);
+    }
+  };
+
+  const undoIt = async () => {
+    if (!undo) return;
+    try {
+      await api("/api/jade/undo", { taskId: undo.taskId, before: undo.before });
+      liveRef.current?.say("I pressed Undo, so that change has been reversed. Just acknowledge it briefly.");
+      setDone(`Put back: ${undo.title}`);
+      setUndo(null);
+      onChanged?.();
+    } catch (e) {
+      setError(e.message);
     }
   };
 
@@ -253,6 +280,9 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
         )}
 
         <h2>Jade</h2>
+        {about && (
+          <p className="eyebrow" style={{ textAlign: "center", margin: "-4px 0 8px" }}>ABOUT · {about.title}</p>
+        )}
 
         <div className="assistant-reply">
           {/* `done` outranks `reply`: once something has been applied, the
@@ -265,8 +295,15 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
             : error ? error
             : done ? done
             : reply ? reply
+            : about ? `${about.title} — done, or later?`
             : `Ask me what's on, or what still needs doing${viewer?.name ? `, ${viewer.name}` : ""}.`}
         </div>
+
+        {undo && (
+          <div className="sheet-actions" style={{ justifyContent: "center", marginTop: 8 }}>
+            <button type="button" className="chip-button" onClick={undoIt}>Undo</button>
+          </div>
+        )}
 
         {proposal && (
           <div className="proposal-card">
@@ -299,8 +336,8 @@ export default function Jade({ viewer, members = [], onClose, onChanged }) {
         </form>
 
         <p className="assistant-rule">
-          Jade can look at the calendar and the task list. Anything it would change,
-          it drafts for you to approve first.
+          Jade can look at the calendar and the task list. Your own tasks it ticks off
+          or moves straight away; anything else it drafts for you to approve.
         </p>
       </div>
     </div>
