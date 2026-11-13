@@ -43,7 +43,7 @@ export function useWeekPlan(api) {
 }
 
 function Thumb({ recipe, size }) {
-  const box = { width: "100%", height: size, borderRadius: 8, overflow: "hidden", background: "linear-gradient(135deg, #fff4e6, #eef6ff)", display: "grid", placeItems: "center", fontSize: 22 };
+  const box = { width: "100%", aspectRatio: "4 / 3", borderRadius: 8, overflow: "hidden", background: "linear-gradient(135deg, #fff4e6, #eef6ff)", display: "grid", placeItems: "center", fontSize: 22 };
   return <div style={box}>{recipe?.imageAt
     ? <img src={`/api/recipes/${recipe.id}/image?v=${encodeURIComponent(recipe.imageAt)}`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
     : <span aria-hidden="true">🍽️</span>}</div>;
@@ -75,7 +75,7 @@ export function WeekStrip({ plan, onDay, choosing, onMakeList }) {
         </span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(84px, 1fr))", gap: 8, marginTop: 12, overflowX: "auto", paddingBottom: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(120px, 1fr))", gap: 8, marginTop: 12, overflowX: "auto", paddingBottom: 4 }}>
         {days.map((d) => {
           const m = plan.byDay[d];
           const isChoosing = choosing === d;
@@ -89,7 +89,7 @@ export function WeekStrip({ plan, onDay, choosing, onMakeList }) {
               {m ? (
                 <>
                   <Thumb recipe={m.recipe} size={56} />
-                  <span style={{ fontSize: 12, lineHeight: 1.25, fontWeight: 700 }}>{m.name}</span>
+                  <span style={{ fontSize: 13, lineHeight: 1.3, fontWeight: 700 }}>{m.name}</span>
                 </>
               ) : (
                 <span style={{ fontSize: 12, color: "#98a0ad", alignSelf: "center", textAlign: "center", paddingTop: 22 }}>{isChoosing ? "Now tap a recipe ↓" : "+ Add"}</span>
