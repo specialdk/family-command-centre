@@ -9210,3 +9210,26 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
 .month-calendar-item.is-task.is-done {
   background: color-mix(in srgb, var(--sun) 10%, white);
 }
+
+/* ---------- Phone: Talk to Jade, fixed above the bottom bar ---------- */
+.jade-bar { display: none; }
+@media (max-width: 700px) {
+  .jade-bar {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    position: fixed; z-index: 40; left: 13px; right: 13px;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    height: 54px; border: 0; border-radius: 18px; cursor: pointer;
+    font: inherit; font-size: 17px; font-weight: 850; color: #fff;
+    background: linear-gradient(135deg, var(--purple, #6d4ae8), var(--sky, #2aa7e0));
+    box-shadow: 0 10px 26px #3a2a9a40;
+  }
+  .jade-bar .voice-mark i { background: #fff; }
+  /* No header on a phone: the page starts with its content, clear of the
+     notch at the top and the Jade button and bottom bar underneath. */
+  .phone-shell .page-body {
+    padding-top: calc(14px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px));
+  }
+  .phone-home { display: grid; gap: 14px; }
+  .phone-home .family-notifications { margin: 0; }
+}

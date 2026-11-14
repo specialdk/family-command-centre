@@ -9,6 +9,7 @@ import Ideas from "./Ideas.jsx";
 import RecipeBook from "./RecipeBook.jsx";
 import ShoppingList from "./Shopping.jsx";
 import { TonightCard } from "./MealPlan.jsx";
+import { usePhone, PhoneDay, NoticeLine, PhoneTiles, JadeBar, WhoSheet, ThisPhone, ScopeToggle } from "./PhoneHome.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
@@ -95,6 +96,9 @@ export default function App() {
   const [editingTask, setEditingTask] = useState(null);  // null = closed, {} = new, a task = editing
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const phone = usePhone();
+  const [askWho, setAskWho] = useState(() => !recallViewer());   // a phone asks once whose it is
+  const setThisPhone = (m) => { setViewingId(String(m.id)); rememberViewer(m.id); setScope("mine"); setAskWho(false); };
 
   const load = async () => { setData(await api("/api/dashboard")); setIdeasVersion((v) => v + 1); };
 
@@ -279,7 +283,7 @@ export default function App() {
   const parents  = data.members.filter((m) => m.role === "PARENT").slice(0, 2);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${phone ? " phone-shell" : ""}`}>
       <aside className="nav-rail">
         <div className="brand-mark"><span style={{ fontSize: 26 }}>🏡</span></div>
         <nav>
@@ -318,6 +322,7 @@ export default function App() {
       </aside>
 
       <div className="workspace">
+        {!phone && (<>
         <header className="topbar">
           <div>
             <p className="eyebrow">FAMILY COMMAND CENTRE</p>
@@ -375,18 +380,36 @@ export default function App() {
             {isParent ? " · parent" : ""} · {saving ? "Saving…" : "Saved"}
           </span>
         </div>
+        </>)}
 
         <div className="page-body">
           {message && <div className="alert" style={{ marginBottom: 18 }}>{message}</div>}
 
-          {tab === "today" && (
+          {tab === "today" && phone && (
+            <div className="phone-home">
+              <PhoneDay viewer={viewer} isParent={isParent} scope={scope} setScope={setScope}
+                todayCount={openTasks.filter((t) => ["overdue", "today"].includes(bucket(t, new Date()))).length} />
+              {unread.length
+                ? <Notices unread={unread} members={data.members} viewer={viewer}
+                    onCompose={() => setComposing(true)} onRead={markNoticesRead} onHistory={openHistory} />
+                : <NoticeLine onHistory={openHistory} onCompose={() => setComposing(true)} />}
+              <PhoneTiles api={api} version={ideasVersion} openTasks={openTasks} chores={myChores} upcoming={upcoming} go={setTab} />
+            </div>
+          )}
+          {phone && isParent && (tab === "calendar" || tab === "tasks") && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+              <ScopeToggle scope={scope} setScope={setScope} />
+            </div>
+          )}
+
+          {tab === "today" && !phone && (
             <Notices
               unread={unread} members={data.members} viewer={viewer}
               onCompose={() => setComposing(true)} onRead={markNoticesRead} onHistory={openHistory}
             />
           )}
 
-          {tab === "today" && (
+          {tab === "today" && !phone && (
             <Today
               viewing={viewer} members={data.members} upcoming={upcoming}
               openTasks={openTasks} chores={myChores}
@@ -413,7 +436,7 @@ export default function App() {
           )}
           {tab === "settings" && (
           <Settings
-            members={data.members} tasks={data.tasks}
+            members={data.members} tasks={data.tasks} viewer={viewer} onSetViewer={setThisPhone}
             onSaveSound={async (id, pronunciation) => {
               await api(`/api/members/${id}`, {
                 method: "PATCH", body: JSON.stringify({ pronunciation })
@@ -434,6 +457,8 @@ export default function App() {
         </div>
       </div>
 
+      {phone && !jadeOpen && <JadeBar onTalk={() => { primeSpeech(); setJadeOpen(true); }} />}
+      {phone && askWho && data?.members?.length > 0 && <WhoSheet members={data.members} onPick={setThisPhone} />}
       {moreOpen && (
         <MoreSheet
           items={nav.filter((i) => !i.primary)} current={tab}
@@ -515,7 +540,7 @@ function MoreSheet({ items, current, onPick, onCancel, onSignOut, onReminders })
             <button type="button" className="chip-button" onClick={onSignOut}>Sign out</button>
           )}
           {onReminders && (
-            <button type="button" className="chip-button" onClick={onReminders}>🔔 Reminders</button>
+            <button type="button" className="chip-button" onClick={onReminders}>⚙ Settings &amp; reminders</button>
           )}
         </div>
       </div>
@@ -815,7 +840,7 @@ function Tasks({ open, done, members, toggle, onOpen }) {
    configuring a household is a sit-down job, and squeezing it onto a phone
    would mean doing it badly in both places. The cog is already hidden below
    700px; this is the other half of that promise. */
-function Settings({ members, tasks, viewer, onSaveSound }) {
+function Settings({ members, tasks, viewer, onSaveSound, onSetViewer }) {
   const [phone, setPhone] = useState(() => {
     try { return window.matchMedia("(max-width: 700px)").matches; } catch { return false; }
   });
@@ -846,6 +871,7 @@ function Settings({ members, tasks, viewer, onSaveSound }) {
             phone screen. Open the Family Command Centre on a computer.
           </p>
         </section>
+        <ThisPhone members={members} viewer={viewer} onChange={onSetViewer} />
         <Reminders api={api} members={members} viewer={viewer} />
       </>
     );
