@@ -29,11 +29,28 @@ export function useWeekPlan(api) {
   const [meals, setMeals] = useState([]);
   const [requests, setRequests] = useState([]);
   const [error, setError] = useState("");
-  const load = () => Promise.all([
-    api(`/api/plan?start=${start}`).then((r) => setMeals(r.meals)),
-    api("/api/plan/requests").then(setRequests),
-  ]).catch((e) => setError(e.message));
+  /* A phone often opens the app mid-way between wifi and 4G, or just as a
+     deploy restarts the server, so a first fetch can fail. Try again a
+     couple of times quietly before saying anything, and re-read whenever
+     the app comes back into view. */
+  const load = async (tries = 3) => {
+    for (let i = 0; i < tries; i++) {
+      try {
+        const [r, w] = await Promise.all([api(`/api/plan?start=${start}`), api("/api/plan/requests")]);
+        setMeals(r.meals); setRequests(w); setError("");
+        return;
+      } catch (e) {
+        if (i === tries - 1) setError("Couldn't load the dinners just now - pull down or come back in a moment.");
+        else await new Promise((ok) => setTimeout(ok, 1500 * (i + 1)));
+      }
+    }
+  };
   useEffect(() => { load(); }, [start]);
+  useEffect(() => {
+    const again = () => { if (document.visibilityState === "visible") load(2); };
+    document.addEventListener("visibilitychange", again);
+    return () => document.removeEventListener("visibilitychange", again);
+  }, [start]);
   const run = async (fn) => { setError(""); try { await fn(); } catch (e) { setError(e.message); } await load(); };
   return {
     start, setStart, meals, requests, error, setError, reload: load,
