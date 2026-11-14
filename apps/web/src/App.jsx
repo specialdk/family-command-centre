@@ -397,7 +397,7 @@ export default function App() {
               <JadeOrb onTalk={() => { primeSpeech(); setJadeOpen(true); }} />
             </div>
           )}
-          {phone && isParent && (tab === "calendar" || tab === "tasks") && (
+          {phone && isParent && tab === "tasks" && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
               <ScopeToggle scope={scope} setScope={setScope} />
             </div>
@@ -427,6 +427,7 @@ export default function App() {
               onToggleTask={(t) => (t.kind && t.kind !== "TASK") ? toggleChore(t) : toggleTask(t)}
               onOpenTask={(t) => setFocusTaskId(t.id)}
               onSchedule={scheduleTask}
+              headerExtra={phone && isParent ? <ScopeToggle scope={scope} setScope={setScope} /> : null}
             />
           )}
           {tab === "tasks"    && (

@@ -9265,3 +9265,11 @@ button.calendar-card { display: block; width: 100%; text-align: left; border: 0;
   }
   @media (prefers-reduced-motion: reduce) { .jade-orb { animation: none; } }
 }
+
+/* Phone: Home is gold only while you're on it, like every other tab -
+   otherwise two buttons look selected at once. */
+@media (max-width: 700px) {
+  .nav-rail nav .today-nav:not(.active) { background: none; box-shadow: none; transform: none; }
+  .nav-rail nav .today-nav:not(.active) small { color: #ffffffbf; }
+  .nav-rail nav .today-nav:not(.active) > span { background: #ffffff26; }
+}

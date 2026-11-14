@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { usePhone } from "./PhoneHome.jsx";
 import { DAY_CODES, shortDay, parseRRule, buildRRule, describeRRule, expandEvents } from "./rrule.js";
 
 /* The calendar, built to Rhian's own stylesheet. The geometry comes from
@@ -78,7 +79,7 @@ function monthMatrix(cursor) {
   return Array.from({ length: 42 }, (_, i) => addDays(start, i));
 }
 
-export default function Calendar({ events, tasks = [], members, calendars, viewer, onCreate, onUpdate, onDelete, onToggleTask, onOpenTask, onSchedule }) {
+export default function Calendar({ events, tasks = [], members, calendars, viewer, onCreate, onUpdate, onDelete, onToggleTask, onOpenTask, onSchedule, headerExtra = null }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   /* Seven columns do not fit a phone, so open on Day there. Read once at
      mount; after that the view is whatever the person chose. */
@@ -92,6 +93,7 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
   /* The task picked up from the rail: dragged on a desktop, or tapped then
      tapped again on a phone, where dragging is miserable. */
   const [carrying, setCarrying] = useState(null);
+  const phone = usePhone();
 
   const keyOf   = (e) => e.memberId ?? "family";
 
@@ -202,15 +204,16 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
 
   return (
     <div className="calendar-layout">
-      <aside className="calendar-nav">
+      {!phone && <aside className="calendar-nav">
         <MiniCal cursor={cursor} onPick={setCursor} events={visible} />
         <div className="calendar-nav-note">
           Click any day to jump there. Click a slot in Day or Week to add something.
         </div>
-      </aside>
+      </aside>}
 
-      <section className="calendar-panel">
-        <div className="calendar-toolbar">
+      <section className="calendar-panel" style={phone ? { padding: 0, background: "none", border: 0, boxShadow: "none", overflow: "visible" } : undefined}>
+        {phone && <PhoneCalHead cursor={cursor} setCursor={setCursor} view={view} setView={setView} onDay={onDay} onAdd={openDraft} extra={headerExtra} />}
+        {!phone && <div className="calendar-toolbar">
           <div className="date-title">
             <button onClick={() => step(-1)} aria-label="Previous">‹</button>
             <button onClick={() => step(1)} aria-label="Next">›</button>
@@ -230,9 +233,9 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
             </div>
             <button className="calendar-add-item" onClick={() => openDraft(cursor)}>+ Add item</button>
           </div>
-        </div>
+        </div>}
 
-        <div className="family-filters">
+        {!phone && <div className="family-filters">
           <span className="filter-label">Showing</span>
           {members.map((m) => (
             <button
@@ -250,11 +253,13 @@ export default function Calendar({ events, tasks = [], members, calendars, viewe
           >
             <span>ALL</span>Family
           </button>
-        </div>
+        </div>}
+        {phone && <div style={{ height: 12 }} />}
 
         {view === "month" && <MonthView cursor={cursor} onDay={onDay} onOpen={openEdit}
                                         onPick={(d) => { setCursor(d); setView("day"); }} onAdd={openDraft} />}
-        {view === "week"  && <WeekView  cursor={cursor} onDay={onDay} onAdd={openDraft} onOpen={openEdit}
+        {view === "week" && phone && <WeekList cursor={cursor} onDay={onDay} onOpen={openEdit} onPick={(d) => { setCursor(d); setView("day"); }} />}
+        {view === "week" && !phone && <WeekView  cursor={cursor} onDay={onDay} onAdd={openDraft} onOpen={openEdit}
                                         onPick={(d) => { setCursor(d); setView("day"); }} />}
         {view === "day"   && (
           <DayView
@@ -401,6 +406,7 @@ function WeekView({ cursor, onDay, onAdd, onPick, onOpen }) {
 /* --------------------------------------------------------------- day view */
 
 function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying, setCarrying, onPlace }) {
+  const [railOpen, setRailOpen] = useState(false);
   const forDay = events.filter((e) => sameDay(new Date(e.startsAt), cursor));
   const hours = Array.from({ length: 24 }, (_, h) => h);
 
@@ -460,7 +466,18 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
 
   return (
     <div className="day-with-tasks">
-      <aside className="day-task-panel">
+      {phone && !railOpen && !carrying ? (
+        unscheduled.length > 0 && (
+          <button type="button" onClick={() => setRailOpen(true)}
+            style={{ order: 2, display: "flex", alignItems: "center", gap: 8, width: "100%", marginTop: 12, padding: "10px 14px", borderRadius: 14,
+                     border: "1px solid color-mix(in srgb, var(--sun) 60%, white)", background: "color-mix(in srgb, var(--sun) 16%, white)",
+                     font: "inherit", fontSize: 14, color: "var(--ink)", cursor: "pointer", textAlign: "left" }}>
+            <span style={{ flex: 1 }}><strong>{unscheduled.length}</strong> {unscheduled.length === 1 ? "task needs" : "tasks need"} a time</span>
+            <span style={{ color: "var(--navy)", fontWeight: 800 }}>Show</span>
+          </button>
+        )
+      ) : (
+      <aside className="day-task-panel" style={phone ? { order: 2 } : undefined}>
         <div className="panel-heading">
           <h2>Ready to schedule</h2>
           <span className="count-badge">{unscheduled.length}</span>
@@ -493,7 +510,9 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
           ))}
           {!unscheduled.length && <p className="empty-capture">Everything has a time.</p>}
         </div>
+        {phone && !carrying && <button type="button" className="chip-button" style={{ marginTop: 10 }} onClick={() => setRailOpen(false)}>Hide</button>}
       </aside>
+      )}
 
     {phone ? (
     <div className="day-schedule-shell day-agenda-shell">
@@ -511,28 +530,7 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
         </div>
       )}
       <ol className="day-agenda">
-        {agenda.map((e) => {
-          const s = new Date(e.startsAt), t = new Date(e.endsAt);
-          return (
-            <li
-              key={e.id}
-              className={`agenda-row ${personClass(e.member)} ${e.isTask ? "is-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
-              onClick={() => onOpen(e)}
-            >
-              <span className="agenda-time">{e.allDay ? "All day" : hhmm(s)}</span>
-              <span className="agenda-bar" />
-              <div className="agenda-body">
-                <strong>{e.title}</strong>
-                <small>
-                  {[e.isTask ? (e.status === "DONE" ? "Done" : e.dueOnly ? "Due" : "To do")
-                             : e.allDay ? null : `until ${hhmm(t)}`,
-                    e.location, e.member?.name || "Family"].filter(Boolean).join(" \u00b7 ")}
-                </small>
-              </div>
-              <span className="agenda-who">{e.member?.initials || "ALL"}</span>
-            </li>
-          );
-        })}
+        {agenda.map((e) => <AgendaRow key={e.id} e={e} onOpen={onOpen} />)}
         {!agenda.length && (
           <li className="agenda-empty">
             Nothing on today.
@@ -540,9 +538,7 @@ function DayView({ cursor, columns, events, onAdd, onOpen, unscheduled, carrying
           </li>
         )}
       </ol>
-      <div className="day-schedule-tip">
-        {carrying ? <strong>Pick a time above</strong> : "Tap anything to open it"}
-      </div>
+      {carrying && <div className="day-schedule-tip"><strong>Pick a time above</strong></div>}
     </div>
     ) : (
     <div className="day-schedule-shell">
@@ -817,6 +813,110 @@ function EventSheet({ draft, setDraft, members, calendars, onCancel, onCreate, o
           )}
         </div>
       </form>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ phone parts */
+
+/* One row of the phone agenda - used by Day and by the Week list. */
+function AgendaRow({ e, onOpen }) {
+  const s = new Date(e.startsAt), t = new Date(e.endsAt);
+  return (
+    <li className={`agenda-row ${personClass(e.member)} ${e.isTask ? "is-task" : ""} ${e.status === "DONE" ? "is-done" : ""}`}
+        onClick={() => onOpen(e)}>
+      <span className="agenda-time">{e.allDay ? "All day" : hhmm(s)}</span>
+      <span className="agenda-bar" />
+      <div className="agenda-body">
+        <strong>{e.title}</strong>
+        <small>
+          {[e.isTask ? (e.status === "DONE" ? "Done" : e.dueOnly ? "Due" : "To do")
+                     : e.allDay ? null : `until ${hhmm(t)}`,
+            e.location, e.member?.name || "Family"].filter(Boolean).join(" · ")}
+        </small>
+      </div>
+      <span className="agenda-who">{e.member?.initials || "ALL"}</span>
+    </li>
+  );
+}
+
+/* Phone header: month, a swipeable strip of the week's days with dots under
+   busy ones, and Day / Week / Month. Replaces the big title and mini month. */
+function PhoneCalHead({ cursor, setCursor, view, setView, onDay, onAdd, extra }) {
+  const week = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cursor), i));
+  const today = startOfDay(new Date());
+  const touch = useRef(null);
+  const step = (dir) => setCursor((c) => addDays(c, dir * 7));
+  const navBtn = { border: 0, background: "none", fontSize: 22, color: "var(--muted)", padding: "0 4px", cursor: "pointer" };
+  return (
+    <div className="agenda-card" style={{ padding: "12px 10px 10px", display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px" }}>
+        <h2 style={{ margin: 0, fontSize: 20, flex: 1 }}>{fmt(view === "month" ? cursor : week[3], { month: "long", year: "numeric" })}</h2>
+        {extra}
+        {!sameDay(cursor, today) && (
+          <button type="button" className="chip-button" onClick={() => setCursor(today)} style={{ padding: "4px 10px" }}>Today</button>
+        )}
+        <button type="button" className="calendar-add-item" onClick={() => onAdd(cursor)} aria-label="Add something"
+          style={{ width: 38, height: 38, padding: 0, borderRadius: 12, fontSize: 22, justifyContent: "center" }}>＋</button>
+      </div>
+      {view !== "month" && (
+        <div style={{ display: "flex", alignItems: "center" }}
+          onTouchStart={(e) => { touch.current = e.touches[0].clientX; }}
+          onTouchEnd={(e) => { const dx = e.changedTouches[0].clientX - (touch.current ?? 0); if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1); touch.current = null; }}>
+          <button type="button" style={navBtn} onClick={() => step(-1)} aria-label="Previous week">‹</button>
+          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+            {week.map((d) => {
+              const on = view === "day" && sameDay(d, cursor);
+              const isToday = sameDay(d, today);
+              const busy = onDay(d).length > 0;
+              return (
+                <button key={+d} type="button" onClick={() => { setCursor(d); setView("day"); }}
+                  style={{ border: 0, background: "none", cursor: "pointer", font: "inherit", padding: "2px 0", display: "grid", justifyItems: "center", gap: 3 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)" }}>{WEEKDAYS[d.getDay()][0]}</span>
+                  <span style={{ width: 34, height: 34, borderRadius: 999, display: "grid", placeItems: "center", fontWeight: 850, fontSize: 15,
+                                 background: on ? "var(--navy)" : "transparent", color: on ? "#fff" : isToday ? "var(--coral)" : "var(--ink)",
+                                 boxShadow: isToday && !on ? "inset 0 0 0 2px var(--coral)" : "none" }}>{d.getDate()}</span>
+                  <span style={{ width: 5, height: 5, borderRadius: 9, background: busy ? "var(--sky)" : "transparent" }} />
+                </button>
+              );
+            })}
+          </div>
+          <button type="button" style={navBtn} onClick={() => step(1)} aria-label="Next week">›</button>
+        </div>
+      )}
+      <div className="view-switch" style={{ display: "flex", justifySelf: "stretch" }}>
+        {["day", "week", "month"].map((v) => (
+          <button key={v} className={view === v ? "selected" : ""} onClick={() => setView(v)} style={{ flex: 1 }}>
+            {v[0].toUpperCase() + v.slice(1)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* Week on a phone: a list of the seven days, not seven columns. */
+function WeekList({ cursor, onDay, onOpen, onPick }) {
+  const today = startOfDay(new Date());
+  const days = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cursor), i));
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {days.map((d) => {
+        const items = onDay(d);
+        const isToday = sameDay(d, today);
+        return (
+          <section key={+d}>
+            <button type="button" onClick={() => onPick(d)}
+              style={{ border: 0, background: "none", padding: "0 4px 4px", font: "inherit", cursor: "pointer", fontSize: 13, fontWeight: 850,
+                       letterSpacing: ".04em", color: isToday ? "var(--coral)" : "var(--muted)" }}>
+              {(isToday ? "TODAY · " : "") + fmt(d, { weekday: "short", day: "numeric", month: "short" }).toUpperCase()}
+            </button>
+            {items.length
+              ? <ol className="day-agenda">{items.map((e) => <AgendaRow key={e.id} e={e} onOpen={onOpen} />)}</ol>
+              : <p style={{ margin: "0 4px", fontSize: 13, color: "#a6adba" }}>Nothing on</p>}
+          </section>
+        );
+      })}
     </div>
   );
 }
