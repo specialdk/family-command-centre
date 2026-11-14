@@ -8,6 +8,7 @@ import TasksBoard, { TaskSheet, bucket, whenOf } from "./Tasks.jsx";
 import Ideas from "./Ideas.jsx";
 import RecipeBook from "./RecipeBook.jsx";
 import Meals, { recallMealsTab } from "./Meals.jsx";
+import DesktopHome from "./DesktopHome.jsx";
 import { TonightCard } from "./MealPlan.jsx";
 import { usePhone, PhoneDay, NoticeLine, PhoneTiles, JadeBar, WhoSheet, ThisPhone, ScopeToggle, JadeOrb } from "./PhoneHome.jsx";
 
@@ -300,7 +301,6 @@ export default function App() {
                 onClick={() => setTab(item.key)}
                 title={item.label}
               >
-                {item.today && <em>HOME</em>}
                 <span>{item.emoji}</span>
                 <small>{item.short || item.label}</small>
                 {!item.today && <i className="nav-grip">⋮⋮</i>}
@@ -400,20 +400,16 @@ export default function App() {
           )}
 
           {tab === "today" && !phone && (
-            <Notices
-              unread={unread} members={data.members} viewer={viewer}
-              onCompose={() => setComposing(true)} onRead={markNoticesRead} onHistory={openHistory}
-            />
-          )}
-
-          {tab === "today" && !phone && (
-            <Today
-              viewing={viewer} members={data.members} upcoming={upcoming}
-              openTasks={openTasks} chores={myChores}
-              toggleTask={toggleTask} toggleChore={toggleChore} onSeeAll={() => setTab("calendar")}
-              onSeeTasks={() => setTab("tasks")}
-              onOpenTask={(t) => setFocusTaskId(t.id)}
-              dinner={<TonightCard api={api} version={ideasVersion} onPlan={() => openMeals("plan")} />}
+            <DesktopHome
+              api={api} version={ideasVersion} viewer={viewer} members={data.members}
+              allTasks={data.tasks || []} openTasks={openTasks} chores={myChores} events={scopedEvents} everyone={everyone}
+              unread={unread} onHistory={openHistory} onCompose={() => setComposing(true)}
+              noticesEl={unread.length ? (
+                <Notices unread={unread} members={data.members} viewer={viewer}
+                  onCompose={() => setComposing(true)} onRead={markNoticesRead} onHistory={openHistory} />
+              ) : null}
+              onOpenTask={(t) => setFocusTaskId(t.id)} toggleTask={toggleTask} toggleChore={toggleChore}
+              go={(k) => (k === "meals" ? openMeals("plan") : setTab(k))}
             />
           )}
           {tab === "calendar" && (
