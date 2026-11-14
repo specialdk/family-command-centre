@@ -397,11 +397,6 @@ export default function App() {
               <JadeOrb onTalk={() => { primeSpeech(); setJadeOpen(true); }} />
             </div>
           )}
-          {phone && isParent && tab === "tasks" && (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-              <ScopeToggle scope={scope} setScope={setScope} />
-            </div>
-          )}
 
           {tab === "today" && !phone && (
             <Notices
@@ -434,6 +429,7 @@ export default function App() {
             <TasksBoard
               tasks={data.tasks || []} members={data.members} viewer={viewer} everyone={everyone}
               onOpen={(t) => setFocusTaskId(t.id)} onToggle={toggleTask} onAdd={() => setEditingTask({})}
+              scopeToggle={phone && isParent ? <ScopeToggle scope={scope} setScope={setScope} /> : null}
             />
           )}
           {tab === "settings" && (

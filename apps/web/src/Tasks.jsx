@@ -15,6 +15,7 @@ import React, { useEffect, useMemo, useState } from "react";
    be done on its own. */
 
 const DAY = 86400000;
+const TONE = { overdue: "var(--coral)", today: "var(--sun)", week: "var(--sky)" };
 const GROUPS = [
   { key: "overdue", label: "Overdue" },
   { key: "today",   label: "Today" },
@@ -27,6 +28,9 @@ export const whenOf = (t) => t.scheduledFor || t.dueAt || null;
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 
 export function bucket(t, now) {
+  /* A missed deadline is overdue even if a later time has been pencilled in
+     to catch up - it stays visibly late until it's done. */
+  if (t.dueAt && new Date(t.dueAt) < now) return "overdue";
   const w = whenOf(t);
   if (!w) return "none";
   const d = new Date(w);
@@ -43,8 +47,10 @@ const fmtWhen = (t) => {
     weekday: "short", day: "numeric", month: "short",
     ...(time ? { hour: "numeric", minute: "2-digit" } : {})
   }).format(new Date(v));
-  if (t.scheduledFor) bits.push(f(t.scheduledFor, true));
-  if (t.dueAt) bits.push(`due ${f(t.dueAt, false)}`);
+  const late = t.dueAt && new Date(t.dueAt) < new Date();
+  if (late) bits.push(`Due ${f(t.dueAt, false)}`);
+  if (t.scheduledFor) bits.push(late ? `planned ${f(t.scheduledFor, true)}` : f(t.scheduledFor, true));
+  if (t.dueAt && !late) bits.push(`due ${f(t.dueAt, false)}`);
   return bits.join(" · ");
 };
 
@@ -70,7 +76,7 @@ const numButton = (hot, active) => ({
   color: active ? "#fff" : hot ? "var(--coral)" : "var(--ink)",
 });
 
-export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, onToggle, onAdd }) {
+export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, onToggle, onAdd, scopeToggle = null }) {
   const phone = usePhone();
   const [filter, setFilter] = useState(null);   // { memberId, group } - either may be undefined
   /* Who has a phone set up for reminders. A reminder to someone with no
@@ -119,13 +125,22 @@ export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, o
   const nameOf = (id) => id == null ? "Unallocated" : (members.find((m) => m.id === id)?.name || "Someone");
 
   return (
-    <div style={{ display: "grid", gap: 18 }}>
+    <div style={{ display: "grid", gap: phone ? 14 : 18 }}>
       {/* ---------------- overview ---------------- */}
-      <section className="agenda-card">
+      <section className="agenda-card" style={phone ? { padding: "14px 14px 12px" } : undefined}>
+        {phone ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h2 style={{ margin: 0, fontSize: 20, flex: 1 }}>{everyone ? "Everyone's tasks" : "My tasks"}</h2>
+            {scopeToggle}
+            <button type="button" className="calendar-add-item" onClick={onAdd} aria-label="Add a task"
+              style={{ width: 38, height: 38, padding: 0, borderRadius: 12, fontSize: 22, justifyContent: "center" }}>＋</button>
+          </div>
+        ) : (
         <div className="section-title">
           <h2>{everyone ? "Where everyone is at" : "Where you're at"}</h2>
           <button type="button" className="calendar-add-item" onClick={onAdd}>+ Add task</button>
         </div>
+        )}
 
         {!phone && (
           <div style={{ overflowX: "auto", marginTop: 12 }}>
@@ -175,7 +190,9 @@ export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, o
               const active = filter?.group === g.key;
               return (
                 <button key={g.key} type="button" className="chip-button" onClick={() => setFilter(active ? null : { group: g.key })}
-                  style={active ? { background: "var(--navy)", color: "#fff" } : g.key === "overdue" && n ? { color: "var(--coral)" } : undefined}>
+                  style={active ? { background: "var(--navy)", color: "#fff" }
+                    : { ...(TONE[g.key] && (n || g.key !== "overdue") ? { background: `color-mix(in srgb, ${TONE[g.key]} ${g.key === "overdue" ? 18 : 22}%, white)`, borderColor: `color-mix(in srgb, ${TONE[g.key]} 45%, white)` } : {}),
+                        ...(g.key === "overdue" && n ? { color: "var(--coral)", fontWeight: 900 } : {}) }}>
                   {g.label} {n}
                 </button>
               );
@@ -215,13 +232,14 @@ export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, o
 
       {/* ---------------- the list ---------------- */}
       {showDone ? (
-        <TaskGroup title="Done this week" items={doneListed} members={members} onOpen={onOpen} onToggle={onToggle} done />
+        <TaskGroup title="Done this week" items={doneListed} members={members} onOpen={onOpen} onToggle={onToggle} done flat={phone} showName={(t) => everyone || t.memberId !== viewer?.id} />
       ) : (
         GROUPS.map((g) => {
           const items = listed.filter((t) => bucket(t, now) === g.key)
             .sort((a, b) => new Date(whenOf(a) || 0) - new Date(whenOf(b) || 0));
           if (!items.length) return null;
-          return <TaskGroup key={g.key} title={g.label} hot={g.key === "overdue"} items={items} members={members} onOpen={onOpen} onToggle={onToggle} />;
+          return <TaskGroup key={g.key} title={g.label} hot={g.key === "overdue"} items={items} members={members} onOpen={onOpen} onToggle={onToggle}
+                            flat={phone} showName={(t) => everyone || t.memberId !== viewer?.id} />;
         })
       )}
       {!showDone && !listed.length && (
@@ -231,13 +249,23 @@ export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, o
   );
 }
 
-function TaskGroup({ title, items, hot, done, onOpen, onToggle }) {
+/* On a phone the groups are headings on the page, not heavy cards - and only
+   Overdue gets colour, so the eye goes there first. */
+function TaskGroup({ title, items, hot, done, onOpen, onToggle, flat, showName = () => true }) {
   return (
-    <section className="task-card">
+    <section className={flat ? undefined : "task-card"}
+      style={flat ? (hot ? { background: "color-mix(in srgb, var(--coral) 8%, white)", border: "1px solid color-mix(in srgb, var(--coral) 35%, white)", borderRadius: 18, padding: "12px 10px 6px" } : { padding: "0 2px" }) : undefined}>
+      {flat ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px 6px" }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 900, letterSpacing: ".02em", color: hot ? "var(--coral)" : "var(--muted)", flex: 1 }}>{title}</h3>
+          <span style={{ fontSize: 13, fontWeight: 900, color: hot ? "var(--coral)" : "var(--muted)" }}>{items.length}</span>
+        </div>
+      ) : (
       <div className="section-title">
         <h2 style={hot ? { color: "var(--coral)" } : undefined}>{title}</h2>
         <span className="count-badge">{items.length}</span>
       </div>
+      )}
       <div className="today-task-list">
         {items.map((t) => (
           <button key={t.id} onClick={() => onOpen(t)}>
@@ -248,7 +276,7 @@ function TaskGroup({ title, items, hot, done, onOpen, onToggle }) {
               <strong style={done ? { color: "#98a0ad", textDecoration: "line-through" } : undefined}>
                 {t.title}{t.needsHelp && <span title="Asked for help" style={{ marginLeft: 6 }}>🙋</span>}
               </strong>
-              <small>{[t.member?.name || "Unallocated", fmtWhen(t)].filter(Boolean).join(" · ")}</small>
+              <small style={hot ? { color: "var(--coral)" } : undefined}>{[showName(t) ? (t.member?.name || "Unallocated") : null, fmtWhen(t)].filter(Boolean).join(" · ")}</small>
             </div>
             <span style={{ color: "#c3c7d0" }}>›</span>
           </button>

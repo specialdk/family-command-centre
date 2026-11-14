@@ -898,7 +898,12 @@ function PhoneCalHead({ cursor, setCursor, view, setView, onDay, onAdd, extra })
 /* Week on a phone: a list of the seven days, not seven columns. */
 function WeekList({ cursor, onDay, onOpen, onPick }) {
   const today = startOfDay(new Date());
-  const days = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cursor), i));
+  /* Looking ahead, not back: in the week that holds today, the list starts
+     at today and runs seven days on. Earlier weeks still show in full if
+     you go back to them on purpose. */
+  const start = startOfWeek(cursor);
+  const from = today >= start && today < addDays(start, 7) ? today : start;
+  const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
   return (
     <div style={{ display: "grid", gap: 12 }}>
       {days.map((d) => {
@@ -909,7 +914,7 @@ function WeekList({ cursor, onDay, onOpen, onPick }) {
             <button type="button" onClick={() => onPick(d)}
               style={{ border: 0, background: "none", padding: "0 4px 4px", font: "inherit", cursor: "pointer", fontSize: 13, fontWeight: 850,
                        letterSpacing: ".04em", color: isToday ? "var(--coral)" : "var(--muted)" }}>
-              {(isToday ? "TODAY · " : "") + fmt(d, { weekday: "short", day: "numeric", month: "short" }).toUpperCase()}
+              {(isToday ? "TODAY · " : sameDay(d, addDays(today, 1)) ? "TOMORROW · " : "") + fmt(d, { weekday: "short", day: "numeric", month: "short" }).toUpperCase()}
             </button>
             {items.length
               ? <ol className="day-agenda">{items.map((e) => <AgendaRow key={e.id} e={e} onOpen={onOpen} />)}</ol>
