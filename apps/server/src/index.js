@@ -516,26 +516,7 @@ app.post("/api/meals", async (req, res) => {
   res.status(201).json(meal);
 });
 
-app.post("/api/shopping", async (req, res) => {
-  const { name, quantity, store, aisle, actorId } = req.body || {};
-  if (!name) return res.status(400).json({ error: "Item name is required" });
-  const item = await prisma.shoppingItem.create({
-    data: { name: String(name).trim(), quantity: quantity || null, store: store || null,
-            aisle: aisle || null, addedById: actorId ? Number(actorId) : null }
-  });
-  res.status(201).json(item);
-});
-
-app.patch("/api/shopping/:id", async (req, res) => {
-  const item = await prisma.shoppingItem.update({
-    where: { id: Number(req.params.id) },
-    data: {
-      ...(req.body.checked !== undefined ? { checked: Boolean(req.body.checked) } : {}),
-      ...(req.body.aisle !== undefined ? { aisle: req.body.aisle || null } : {})
-    }
-  });
-  res.json(item);
-});
+/* Shopping list add/change routes live in plan.js (createShopping). */
 
 if (PROD) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));

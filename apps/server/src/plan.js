@@ -32,6 +32,21 @@ export const MEAL_TOOLS = [
     }
   },
   {
+    name: "add_to_shopping",
+    description:
+      "Put something on the family shopping list (\"add milk\", \"we need dog food from Drakes\", \"we're out of pasta\"). " +
+      "Saved straight away. Only give a store if they name one; otherwise it goes where the family usually buys it.",
+    parameters: {
+      type: "object",
+      properties: {
+        item: { type: "string", description: "The thing, e.g. \"milk\"" },
+        quantity: { type: "string", description: "Only if they say, e.g. \"2 litres\"" },
+        store: { type: "string", description: "Only if they name one: ALDI, Coles, Drakes or Costco" }
+      },
+      required: ["item"]
+    }
+  },
+  {
     name: "whats_for_dinner",
     description: "The dinners planned for the next seven nights, and what is on the wish list. Use for \"what's for dinner?\".",
     parameters: { type: "object", properties: {} }
@@ -50,6 +65,89 @@ const isStaple = (item) => {
   return STAPLES.some((s) => t === s || t.endsWith(` ${s}`) && s.split(" ").length > 1 || t === `${s}s`);
 };
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+/* ------------------------------------------------------------- shopping --
+   Rhian's design: the family shops at a few local stores, and each product
+   has a usual one. The list groups by store, then aisle. Whenever someone
+   sets an item's store it is remembered (ProductPref), so next time "dog
+   food" lands under Drakes without asking. */
+
+export const STORES = ["ALDI", "Coles", "Drakes", "Costco"];
+export const cleanStore = (s) => {
+  const t = String(s || "").trim();
+  if (!t) return null;
+  return STORES.find((x) => x.toLowerCase() === t.toLowerCase()) || t.replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 40);
+};
+
+/* "Carrots", "carrot (diced)" and "carrot" are the same thing to buy. */
+const singular = (w) => /ies$/.test(w) ? w.replace(/ies$/, "y") : /(oes|ches|shes|xes)$/.test(w) ? w.replace(/es$/, "") : /[^s]s$/.test(w) ? w.slice(0, -1) : w;
+export const itemKey = (name) => {
+  const words = String(name || "").toLowerCase().replace(/\(.*?\)/g, " ").replace(/[^a-z0-9 ]/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  words[words.length - 1] = singular(words[words.length - 1]);
+  return words.join(" ");
+};
+export const nice = (name) => { const t = String(name || "").trim(); return t ? t[0].toUpperCase() + t.slice(1) : t; };
+
+const AISLE_WORDS = [
+  ["Dairy", /\b(milk|cheese|yoghurt|yogurt|butter|cream|egg|eggs|feta|parmesan|mozzarella)\b/],
+  ["Meat", /\b(chicken|beef|lamb|pork|mince|sausage|sausages|bacon|ham|steak|turkey)\b/],
+  ["Seafood", /\b(fish|salmon|prawn|prawns|tuna|barramundi|seafood)\b/],
+  ["Bakery", /\b(bread|loaf|loaves|roll|rolls|wrap|wraps|bun|buns|tortilla|tortillas|croissant)\b/],
+  ["Frozen", /\b(frozen|ice cream|peas|chips)\b/],
+  ["Produce", /\b(apple|apples|banana|bananas|orange|lemon|lime|avocado|tomato|tomatoes|potato|potatoes|onion|onions|carrot|carrots|lettuce|spinach|broccoli|zucchini|capsicum|cucumber|mushroom|mushrooms|garlic|ginger|herb|herbs|parsley|coriander|basil|fruit|berries|grapes|pumpkin|corn|celery|kale)\b/],
+  ["Household", /\b(tablet|tablets|detergent|toilet paper|paper towel|bin bag|bin bags|soap|shampoo|toothpaste|dog food|cat food|pet|cleaner|sponge|foil|cling)\b/],
+  ["Pantry", /\b(rice|pasta|spaghetti|flour|sugar|oil|stock|sauce|tin|tinned|can|beans|cereal|oats|coffee|tea|honey|jam|vinegar|spice|salt|pepper|noodles|biscuits)\b/]
+];
+export const guessAisle = (name) => {
+  const t = String(name || "").toLowerCase();
+  return (AISLE_WORDS.find(([, re]) => re.test(t)) || [null])[0];
+};
+
+export async function learnPref(prisma, name, { store, aisle }) {
+  const key = itemKey(name);
+  if (!key) return;
+  const data = { ...(store !== undefined ? { store } : {}), ...(aisle ? { aisle } : {}) };
+  if (!Object.keys(data).length) return;
+  await prisma.productPref.upsert({ where: { key }, create: { key, ...data }, update: data }).catch(() => {});
+}
+async function prefsFor(prisma, names) {
+  const keys = [...new Set(names.map(itemKey).filter(Boolean))];
+  const rows = keys.length ? await prisma.productPref.findMany({ where: { key: { in: keys } } }) : [];
+  return new Map(rows.map((r) => [r.key, r]));
+}
+
+/* One item onto the list - from the add box, from Jade, or anywhere else.
+   An explicit store is remembered; no store means "where we usually get it". */
+export async function addShoppingItem(prisma, { name, quantity, store, aisle, actorId, note }) {
+  const clean = nice(String(name || "").trim().slice(0, 120));
+  if (!clean) return null;
+  const pref = (await prefsFor(prisma, [clean])).get(itemKey(clean));
+  const chosen = store !== undefined && store !== "" ? cleanStore(store) : undefined;
+  if (chosen) await learnPref(prisma, clean, { store: chosen });
+  return prisma.shoppingItem.create({
+    data: {
+      name: clean, quantity: quantity ? String(quantity).slice(0, 120) : null,
+      store: chosen ?? pref?.store ?? null,
+      aisle: aisle || pref?.aisle || guessAisle(clean),
+      note: note ? String(note).slice(0, 200) : null,
+      addedById: actorId ? Number(actorId) : null
+    }
+  });
+}
+
+/* Quantities from several recipes: "1 + 1 + 1" -> "3", "200 g + 300 g" -> "500 g". */
+export function sumQty(list) {
+  const totals = new Map(); const other = [];
+  for (const q of list) {
+    const m = /^(\d+(?:\.\d+)?)\s*(.*)$/.exec(String(q).trim());
+    if (!m) { other.push(q); continue; }
+    const unit = m[2].trim().toLowerCase();
+    totals.set(unit, (totals.get(unit) || 0) + Number(m[1]));
+  }
+  const out = [...totals].map(([u, n]) => `${Math.round(n * 100) / 100}${u ? ` ${u}` : ""}`);
+  return [...out, ...other].join(" + ") || null;
+}
 
 export function createPlan({ prisma, familyTz }) {
   const router = Router();
@@ -103,6 +201,11 @@ export function createPlan({ prisma, familyTz }) {
       return { output: recipe
         ? `Added "${r.title}" to the dinner wish list${speaker ? ` for ${speaker.name}` : ""}. Say it's on the wish list for when the week gets planned - not necessarily tonight. If "${r.title}" isn't what they meant, say so.`
         : `There's no "${dish}" in the recipe book, but it's on the wish list as "${r.title}". Say so in a few words.` };
+    }
+    if (name === "add_to_shopping") {
+      const it = await addShoppingItem(prisma, { name: args.item, quantity: args.quantity, store: args.store || undefined, actorId: speaker?.id });
+      if (!it) return { output: "Ask what to add." };
+      return { output: `Added ${it.name}${it.quantity ? ` (${it.quantity})` : ""} to the shopping list${it.store ? ` under ${it.store}` : ""}. Confirm in a few words.` };
     }
     if (name === "whats_for_dinner") {
       const today = dayKey(new Date());
@@ -220,14 +323,15 @@ export function createPlan({ prisma, familyTz }) {
       for (const ing of r.ingredients || []) {
         const name = String(ing.item || "").trim();
         if (!name) continue;
-        const key = name.toLowerCase();
-        const line = lines.get(key) || { name, qty: [], aisle: ing.aisle || "Other", for: [], staple: isStaple(name) };
+        const key = itemKey(name);
+        const line = lines.get(key) || { name: nice(name), qty: [], aisle: ing.aisle || "Other", for: [], staple: isStaple(name) };
         if (ing.qty && ing.qty !== "to serve") line.qty.push(ing.qty);
         if (!line.for.includes(r.title)) line.for.push(r.title);
         lines.set(key, line);
       }
     }
-    const all = [...lines.values()].map((l) => ({ ...l, qty: l.qty.join(" + ") || null }))
+    const prefs = await prefsFor(prisma, [...lines.values()].map((l) => l.name));
+    const all = [...lines.values()].map((l) => ({ ...l, qty: sumQty(l.qty), store: prefs.get(itemKey(l.name))?.store || null }))
       .sort((a, b) => AISLE_ORDER.indexOf(a.aisle) - AISLE_ORDER.indexOf(b.aisle) || a.name.localeCompare(b.name));
     res.json({ dinners: meals.length, buy: all.filter((l) => !l.staple), staples: all.filter((l) => l.staple) });
   });
@@ -239,14 +343,38 @@ export function createPlan({ prisma, familyTz }) {
    plan), removing one, and clearing what has been ticked off. */
 export function createShopping({ prisma }) {
   const router = Router();
+
+  router.get("/stores", (_req, res) => res.json(STORES));
+
+  router.post("/", async (req, res) => {
+    const b = req.body || {};
+    const item = await addShoppingItem(prisma, { name: b.name, quantity: b.quantity, store: b.store, aisle: b.aisle, actorId: b.actorId, note: b.note });
+    if (!item) return res.status(400).json({ error: "Item name is required" });
+    res.status(201).json(item);
+  });
+
+  router.patch("/:id", async (req, res) => {
+    const b = req.body || {};
+    const data = {};
+    if (b.checked !== undefined) data.checked = Boolean(b.checked);
+    if (b.aisle !== undefined) data.aisle = b.aisle || null;
+    if (b.store !== undefined) data.store = cleanStore(b.store);
+    if (b.quantity !== undefined) data.quantity = b.quantity ? String(b.quantity).slice(0, 120) : null;
+    const item = await prisma.shoppingItem.update({ where: { id: Number(req.params.id) }, data });
+    if (b.store !== undefined) await learnPref(prisma, item.name, { store: data.store });
+    res.json(item);
+  });
+
   router.post("/bulk", async (req, res) => {
     const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 200)
       .filter((i) => String(i?.name || "").trim());
     const addedById = Number(req.body?.actorId) || null;
+    const prefs = await prefsFor(prisma, items.map((i) => String(i.name)));
     if (items.length) {
       await prisma.shoppingItem.createMany({
         data: items.map((i, n) => ({
-          name: String(i.name).trim().slice(0, 120), quantity: i.qty ? String(i.qty).slice(0, 120) : null,
+          name: nice(String(i.name).trim().slice(0, 120)), quantity: i.qty ? String(i.qty).slice(0, 120) : null,
+          store: cleanStore(i.store) || prefs.get(itemKey(i.name))?.store || null,
           aisle: i.aisle || null, note: i.for?.length ? i.for.join(", ").slice(0, 200) : null,
           addedById, position: n
         }))

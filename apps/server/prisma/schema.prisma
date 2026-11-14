@@ -515,3 +515,14 @@ model MealRequest {
   plannedAt DateTime?
   createdAt DateTime      @default(now())
 }
+
+/// Where the family usually buys a product, learned whenever someone picks a
+/// store for it. Keyed by a normalised name ("carrots" -> "carrot").
+model ProductPref {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  store     String?
+  aisle     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

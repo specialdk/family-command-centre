@@ -7,7 +7,7 @@ import TaskCard from "./TaskCard.jsx";
 import TasksBoard, { TaskSheet, bucket, whenOf } from "./Tasks.jsx";
 import Ideas from "./Ideas.jsx";
 import RecipeBook from "./RecipeBook.jsx";
-import ShoppingList from "./Shopping.jsx";
+import Meals, { recallMealsTab } from "./Meals.jsx";
 import { TonightCard } from "./MealPlan.jsx";
 import { usePhone, PhoneDay, NoticeLine, PhoneTiles, JadeBar, WhoSheet, ThisPhone, ScopeToggle, JadeOrb } from "./PhoneHome.jsx";
 
@@ -18,8 +18,7 @@ const NAV = [
   { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true, primary: true },
   { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true, primary: true },
   { key: "ideas",       emoji: "💡",        label: "Ideas",       ready: true },
-  { key: "recipes",     emoji: "🍲",        label: "Recipes",     ready: true },
-  { key: "shopping",    emoji: "🛒",        label: "Shopping",    ready: true, primary: true },
+  { key: "meals",       emoji: "🍽️",        label: "Meals & Shopping", short: "Meals", ready: true, primary: true },
   { key: "inputs",      emoji: "📥",        label: "Inputs",      parentOnly: true },
   { key: "finances",    emoji: "💰",        label: "Finances",    parentOnly: true },
   { key: "investments", emoji: "📈",        label: "Investments", parentOnly: true },
@@ -96,6 +95,8 @@ export default function App() {
   const [editingTask, setEditingTask] = useState(null);  // null = closed, {} = new, a task = editing
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [mealsTab, setMealsTab] = useState(recallMealsTab);   // Plan / Recipes / Shopping, last used
+  const openMeals = (sub) => { if (sub) setMealsTab(sub); setTab("meals"); };
   const phone = usePhone();
   const [askWho, setAskWho] = useState(() => !recallViewer());   // a phone asks once whose it is
   const setThisPhone = (m) => { setViewingId(String(m.id)); rememberViewer(m.id); setScope("mine"); setAskWho(false); };
@@ -301,7 +302,7 @@ export default function App() {
               >
                 {item.today && <em>HOME</em>}
                 <span>{item.emoji}</span>
-                <small>{item.label}</small>
+                <small>{item.short || item.label}</small>
                 {!item.today && <i className="nav-grip">⋮⋮</i>}
               </button>
             ))}
@@ -393,7 +394,7 @@ export default function App() {
                 ? <Notices unread={unread} members={data.members} viewer={viewer}
                     onCompose={() => setComposing(true)} onRead={markNoticesRead} onHistory={openHistory} />
                 : <NoticeLine onHistory={openHistory} onCompose={() => setComposing(true)} />}
-              <PhoneTiles api={api} version={ideasVersion} openTasks={openTasks} chores={myChores} upcoming={upcoming} go={setTab} />
+              <PhoneTiles api={api} version={ideasVersion} openTasks={openTasks} chores={myChores} upcoming={upcoming} go={(k) => (k === "recipes" ? openMeals("plan") : setTab(k))} />
               <JadeOrb onTalk={() => { primeSpeech(); setJadeOpen(true); }} />
             </div>
           )}
@@ -412,7 +413,7 @@ export default function App() {
               toggleTask={toggleTask} toggleChore={toggleChore} onSeeAll={() => setTab("calendar")}
               onSeeTasks={() => setTab("tasks")}
               onOpenTask={(t) => setFocusTaskId(t.id)}
-              dinner={<TonightCard api={api} version={ideasVersion} onPlan={() => setTab("recipes")} />}
+              dinner={<TonightCard api={api} version={ideasVersion} onPlan={() => openMeals("plan")} />}
             />
           )}
           {tab === "calendar" && (
@@ -449,8 +450,10 @@ export default function App() {
               onTalk={(idea) => { primeSpeech(); setJadeAbout(null); setJadeIdea(idea); setJadeOpen(true); }}
             />
           )}
-          {tab === "recipes"  && <RecipeBook api={api} viewer={viewer} members={data.members} onShopping={load} />}
-          {tab === "shopping" && <ShoppingList api={api} items={data.shopping} viewer={viewer} onChange={load} />}
+          {tab === "meals" && (
+            <Meals api={api} viewer={viewer} members={data.members} items={data.shopping} onChange={load}
+              sub={mealsTab} setSub={setMealsTab} />
+          )}
           {!current.ready && <Placeholder item={current} />}
         </div>
       </div>

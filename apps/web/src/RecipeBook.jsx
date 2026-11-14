@@ -60,14 +60,25 @@ function Facts({ r }) {
   );
 }
 
-export default function RecipeBook({ api, viewer, members, onShopping }) {
-  const plan = useWeekPlan(api);
+/* Used by the Meals & Shopping screen for two of its tabs:
+   mode "plan"    - the dinners strip (and on a desktop the book below it, for dragging)
+   mode "recipes" - the recipe book
+   The plan and "a night waiting for a recipe" live in the parent so they
+   survive switching tabs. */
+export default function RecipeBook({ api, viewer, members, onShopping, plan, choosing, setChoosing, mode = "plan", onGoTab }) {
   const phone = usePhone();
-  const [choosing, setChoosing] = useState(null);   // a night waiting for a recipe
+  const showStrip = mode === "plan";
+  const showBook = mode === "recipes" || !phone;
   const [dayOpen, setDayOpen] = useState(null);     // { day, meal }
   const [cupboard, setCupboard] = useState(false);
   const [note, setNote] = useState("");
   const listRef = useRef(null);
+  /* A night waiting for a recipe: on a phone, go to the book to pick one. */
+  const chooseFor = (d) => {
+    setChoosing(d);
+    if (phone) onGoTab?.("recipes");
+    else listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const [recipes, setRecipes] = useState(null);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
@@ -126,7 +137,7 @@ export default function RecipeBook({ api, viewer, members, onShopping }) {
   const card = (r) => (
     <button key={r.id} type="button" draggable
       onDragStart={(e) => { e.dataTransfer.setData("text/recipe-id", String(r.id)); e.dataTransfer.setData("text/plain", String(r.id)); e.dataTransfer.effectAllowed = "copy"; }}
-      onClick={() => { if (choosing) { plan.put(r.id, choosing); setChoosing(null); } else setOpenId(r.id); }}
+      onClick={() => { if (choosing) { plan.put(r.id, choosing); setChoosing(null); if (phone) onGoTab?.("plan"); } else setOpenId(r.id); }}
       style={{ textAlign: "left", cursor: "pointer", border: "1px solid var(--line)", borderRadius: 14, background: "#fff",
                padding: phone ? 7 : "10px 10px 12px", display: "grid", gap: phone ? 5 : 7, font: "inherit", color: "var(--ink)", alignContent: "start", minWidth: 0 }}>
       <Picture r={r} height={phone ? 118 : 150} />
@@ -146,13 +157,20 @@ export default function RecipeBook({ api, viewer, members, onShopping }) {
 
   return (
     <div style={{ display: "grid", gap: phone ? 14 : 18, gridTemplateColumns: "minmax(0, 1fr)" }}>
-      <WeekStrip plan={plan} choosing={choosing} onMakeList={() => setCupboard(true)} viewer={viewer} onOpen={setOpenId}
+      {showStrip && <WeekStrip plan={plan} choosing={choosing} onMakeList={() => setCupboard(true)} viewer={viewer} onOpen={setOpenId}
         onDay={(d, m) => {
           if (m) { setChoosing(null); setDayOpen({ day: d, meal: m }); }
-          else { setChoosing(choosing === d ? null : d); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }
-        }} />
-      {note && <div className="alert" style={{ background: "#eefaf1", borderColor: "var(--mint)", color: "var(--ink)" }}>{note}</div>}
+          else if (choosing === d) setChoosing(null);
+          else chooseFor(d);
+        }} />}
+      {showStrip && note && (
+        <div className="alert" style={{ background: "#eefaf1", borderColor: "var(--mint)", color: "var(--ink)", display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ flex: 1 }}>{note}</span>
+          {onGoTab && <button type="button" className="chip-button" onClick={() => onGoTab("shopping")}>Open the list →</button>}
+        </div>
+      )}
 
+      {showBook && (<>
       <section className="agenda-card" ref={listRef}>
         <div className="section-title">
           <h2>Recipes</h2>
@@ -209,16 +227,17 @@ export default function RecipeBook({ api, viewer, members, onShopping }) {
           {showNot && <div style={grid}>{notForUs.map(card)}</div>}
         </section>
       )}
+      </>)}
 
       {dayOpen && (
         <DaySheet day={dayOpen.day} meal={dayOpen.meal} onClose={() => setDayOpen(null)}
           onOpen={() => { setOpenId(dayOpen.meal.recipeId); setDayOpen(null); }}
-          onSwap={() => { setChoosing(dayOpen.day); setDayOpen(null); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+          onSwap={() => { const d = dayOpen.day; setDayOpen(null); chooseFor(d); }}
           onRemove={async () => { await plan.remove(dayOpen.meal); setDayOpen(null); }} />
       )}
       {cupboard && (
         <CupboardCheck api={api} plan={plan} viewer={viewer} onClose={() => setCupboard(false)}
-          onAdded={async () => { await onShopping?.(); setNote("Added to the Shopping list ✓"); setTimeout(() => setNote(""), 5000); }} />
+          onAdded={async () => { await onShopping?.(); setNote("Added to the shopping list ✓"); setTimeout(() => setNote(""), 8000); }} />
       )}
       {openId && <RecipeSheet plan={plan} id={openId} api={api} viewer={viewer} members={members} onRate={rate} busy={busy} onClose={() => setOpenId(null)} onPicture={loadList}
                                summary={recipes?.find((r) => r.id === openId)} />}
