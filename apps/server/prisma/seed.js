@@ -165,18 +165,7 @@ async function main() {
     });
   }
 
-  // --- meals -------------------------------------------------------------
-  if ((await prisma.meal.count()) === 0) {
-    await prisma.meal.createMany({
-      data: [
-        { name: "Chicken & Mushroom Risotto", notes: "A creamy family dinner that is easy to prepare together.", plannedFor: at(0, 18, 30) },
-        { name: "Spinach Pie",    notes: "From the Oliver family collection.", plannedFor: at(1, 18, 30) },
-        { name: "Fish Casserole", notes: "From the Oliver family collection.", plannedFor: at(2, 18, 30) },
-        { name: "Slow-cooked lamb", notes: "Sunday roast.", plannedFor: at(4, 18) },
-        { name: "Pasta bake",     notes: "Quick weeknight option." }
-      ]
-    });
-  }
+  // Meals: no demo dinners any more - the plan is built from the recipe book.
 
   // --- starter recipes ---------------------------------------------------
   // Added by title, so new ones in the file arrive on the next deploy and
