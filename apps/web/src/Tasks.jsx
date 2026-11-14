@@ -26,11 +26,12 @@ const GROUPS = [
 
 export const whenOf = (t) => t.scheduledFor || t.dueAt || null;
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const endOfDay = (d) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
 
 export function bucket(t, now) {
   /* A missed deadline is overdue even if a later time has been pencilled in
      to catch up - it stays visibly late until it's done. */
-  if (t.dueAt && new Date(t.dueAt) < now) return "overdue";
+  if (t.dueAt && endOfDay(t.dueAt) < now) return "overdue";   // "due Saturday" means by the end of Saturday
   const w = whenOf(t);
   if (!w) return "none";
   const d = new Date(w);
@@ -47,7 +48,7 @@ const fmtWhen = (t) => {
     weekday: "short", day: "numeric", month: "short",
     ...(time ? { hour: "numeric", minute: "2-digit" } : {})
   }).format(new Date(v));
-  const late = t.dueAt && new Date(t.dueAt) < new Date();
+  const late = t.dueAt && endOfDay(t.dueAt) < new Date();
   if (late) bits.push(`Due ${f(t.dueAt, false)}`);
   if (t.scheduledFor) bits.push(late ? `planned ${f(t.scheduledFor, true)}` : f(t.scheduledFor, true));
   if (t.dueAt && !late) bits.push(`due ${f(t.dueAt, false)}`);
@@ -201,15 +202,15 @@ export default function TasksBoard({ tasks, members, viewer, everyone, onOpen, o
         )}
 
         {phone && everyone && (
-          <div className="connection-list" style={{ display: "grid", gap: 8, marginTop: 12 }}>
+          <div className="connection-list" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
             {people.map((p) => {
               const o = count(p.id, "overdue"), d = count(p.id, "today");
               const active = filter?.memberId === p.id && !filter?.group;
               return (
                 <button key={p.id ?? "none"} type="button" className="chip-button" onClick={() => pick(p.id, undefined)}
-                  style={{ display: "flex", justifyContent: "space-between", width: "100%", ...(active ? { background: "var(--navy)", color: "#fff" } : {}) }}>
+                  style={{ display: "grid", gap: 2, justifyItems: "start", textAlign: "left", width: "100%", padding: "8px 12px", ...(active ? { background: "var(--navy)", color: "#fff" } : {}) }}>
                   <span>{p.name}{helpFor(p.id) ? " 🙋" : ""}{noPhone(p.id) ? " 📵" : ""}</span>
-                  <span style={{ color: active ? "#fff" : o ? "var(--coral)" : "var(--muted)" }}>
+                  <span style={{ fontSize: 12, color: active ? "#fff" : o ? "var(--coral)" : "var(--muted)" }}>
                     {[o && `${o} overdue`, d && `${d} today`].filter(Boolean).join(" · ") || "all clear"}
                   </span>
                 </button>
@@ -266,7 +267,7 @@ function TaskGroup({ title, items, hot, done, onOpen, onToggle, flat, showName =
         <span className="count-badge">{items.length}</span>
       </div>
       )}
-      <div className="today-task-list">
+      <div className="today-task-list" style={flat ? { marginTop: 0 } : undefined}>
         {items.map((t) => (
           <button key={t.id} onClick={() => onOpen(t)}>
             <span className="task-check" title={done ? "Reopen" : "Tick off"}
