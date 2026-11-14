@@ -245,14 +245,20 @@ function RecipeSheet({ plan, id, api, viewer, members, onClose, onRate, busy, su
       <div className="event-detail-sheet sheet-card" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto" }}>
         {!r ? <p style={{ color: "var(--muted)" }}>{r === false ? "That recipe isn't here." : "Loading…"}</p> : (
           <>
+            <div style={{ position: "sticky", top: 0, height: 0, zIndex: 3, display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" onClick={onClose} aria-label="Close"
+                style={{ marginTop: 8, marginRight: 8, width: 38, height: 38, borderRadius: 999, border: 0, cursor: "pointer",
+                         background: "#ffffffee", boxShadow: "0 2px 10px #0003", fontSize: 18, fontWeight: 800, color: "var(--ink)" }}>✕</button>
+            </div>
             <Picture r={live} height={220} />
-            <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 0 4px", fontSize: 13, color: "var(--muted)" }}>
-              <button type="button" className="chip-button" onClick={paint} disabled={painting}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 0 4px", fontSize: 12, color: "var(--muted)" }}>
+              <button type="button" onClick={paint} disabled={painting}
+                style={{ border: 0, background: "none", padding: 0, font: "inherit", fontSize: 12, color: "var(--muted)", textDecoration: "underline", cursor: "pointer" }}>
                 {painting ? "🎨 Making a picture… (about 30 seconds)" : live.hasImage ? "🎨 New picture" : "🎨 Make a picture"}
               </button>
               {picNote && <span>{picNote}</span>}
             </div>
-            <p className="eyebrow">RECIPE · SERVES {live.serves}{mins(live) ? ` · ${mins(live)} MIN` : ""}</p>
+            <p className="eyebrow">RECIPE · SERVES {live.serves}</p>
             <h2>{live.title}</h2>
             <p style={{ margin: "6px 0 10px", color: "var(--muted)" }}>{live.summary}</p>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -264,8 +270,9 @@ function RecipeSheet({ plan, id, api, viewer, members, onClose, onRate, busy, su
                 {live.upBy?.length ? `👍 ${names(live.upBy)}` : ""}{live.upBy?.length && live.downBy?.length ? " · " : ""}{live.downBy?.length ? `👎 ${names(live.downBy)}` : ""}
               </p>
             )}
+            {plan && <PlanButtons plan={plan} recipeId={live.id} viewer={viewer} />}
 
-            <p className="eyebrow" style={{ marginTop: 16 }}>INGREDIENTS</p>
+            <p className="eyebrow" style={{ marginTop: 18 }}>INGREDIENTS</p>
             <ul style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.7, fontSize: 14 }}>
               {(r.ingredients || []).map((x, i) => <li key={i}><strong>{x.qty}</strong> {x.item}</li>)}
             </ul>
@@ -277,7 +284,6 @@ function RecipeSheet({ plan, id, api, viewer, members, onClose, onRate, busy, su
             {live.glutenFree && (
               <p className="sheet-note" style={{ marginTop: 10 }}>Gluten free with ordinary ingredients — where it says "check label", brands vary.</p>
             )}
-            {plan && <PlanButtons plan={plan} recipeId={live.id} viewer={viewer} />}
             <div className="sheet-actions" style={{ marginTop: 16 }}>
               <button type="button" className="chip-button" onClick={onClose}>Close</button>
             </div>
