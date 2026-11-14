@@ -242,6 +242,8 @@ model ShoppingItem {
   aisle     String?
   /// What it's for, e.g. "Spaghetti bolognese, Lasagne".
   note      String?
+  /// The dinners it's for; empty for things typed in by hand.
+  recipeIds Int[]         @default([])
   checked   Boolean       @default(false)
   position  Int           @default(0)
   addedById Int?
@@ -388,6 +390,10 @@ model FamilySetting {
   /// Local time in FAMILY_TIMEZONE, "HH:MM". No pushes between these.
   quietStart       String   @default("21:30")
   quietEnd         String   @default("06:30")
+  /// The shopping list follows the dinners planned in this window.
+  listFrom         DateTime?
+  listTo           DateTime?
+  listRecipeIds    Int[]    @default([])
   updatedAt        DateTime @updatedAt
 }
 

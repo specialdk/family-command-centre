@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import RecipeBook from "./RecipeBook.jsx";
 import ShoppingList from "./Shopping.jsx";
-import { useWeekPlan } from "./MealPlan.jsx";
+import { useWeekPlan, CupboardCheck } from "./MealPlan.jsx";
 
 /* Meals & Shopping: one job in three steps - plan the nights, pick from the
    book, buy what's missing. One screen with tabs, opening on the tab used
@@ -13,7 +13,7 @@ export const recallMealsTab = () => { try { return localStorage.getItem(KEY) || 
 const remember = (t) => { try { localStorage.setItem(KEY, t); } catch { /* fine */ } };
 
 export default function Meals({ api, viewer, members, items, onChange, sub, setSub }) {
-  const plan = useWeekPlan(api);
+  const plan = useWeekPlan(api, { onSynced: onChange });
   const [choosing, setChoosing] = useState(null);
   const go = (t) => { setSub(t); remember(t); window.scrollTo?.({ top: 0 }); };
   const left = (items || []).filter((i) => !i.checked && i.aisle !== "Check you have").length;
@@ -31,7 +31,11 @@ export default function Meals({ api, viewer, members, items, onChange, sub, setS
         <RecipeBook api={api} viewer={viewer} members={members} onShopping={onChange}
           plan={plan} choosing={choosing} setChoosing={setChoosing} mode={sub} onGoTab={go} />
       )}
-      {sub === "shopping" && <ShoppingList api={api} items={items} viewer={viewer} onChange={onChange} />}
+      {sub === "shopping" && <ShoppingList api={api} items={items} viewer={viewer} onChange={onChange} onSync={plan.sync} />}
+      {plan.newItems && (
+        <CupboardCheck api={api} plan={plan} viewer={viewer} preset={plan.newItems}
+          onClose={plan.clearNewItems} onAdded={onChange} />
+      )}
     </div>
   );
 }

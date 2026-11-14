@@ -14,7 +14,9 @@ const LAST_STORE = "fcc-last-store";
 const recallStore = () => { try { return localStorage.getItem(LAST_STORE) || ""; } catch { return ""; } };
 const saveStore = (s) => { try { localStorage.setItem(LAST_STORE, s); } catch { /* fine */ } };
 
-export default function Shopping({ api, items, viewer, onChange }) {
+export default function Shopping({ api, items, viewer, onChange, onSync }) {
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [synced, setSynced] = useState("");
   const [name, setName] = useState("");
   const [store, setStore] = useState(recallStore);   // "" = wherever we usually get it
   const [busy, setBusy] = useState(false);
@@ -35,6 +37,13 @@ export default function Shopping({ api, items, viewer, onChange }) {
   const patch = (i, body) => run(() => api(`/api/shopping/${i.id}`, { method: "PATCH", body: JSON.stringify(body) }));
   const drop = (i) => run(() => api(`/api/shopping/${i.id}`, { method: "DELETE" }));
   const clearTicked = () => run(() => api("/api/shopping/checked", { method: "DELETE" }));
+  const clearAll = () => { setConfirmClear(false); run(() => api("/api/shopping", { method: "DELETE" })); };
+  const update = () => run(async () => {
+    const r = await onSync?.();
+    setSynced(!r?.active ? "No list from the dinners yet - make one from the Plan tab."
+      : r.removed || r.updated || r.ask?.length ? `Updated: ${r.removed} removed, ${r.updated} changed${r.ask?.length ? `, ${r.ask.length} to check` : ""}.` : "Already up to date with the dinners.");
+    setTimeout(() => setSynced(""), 6000);
+  });
 
   const real = items.filter((i) => i.aisle !== CHECK_AISLE);
   const check = items.filter((i) => i.aisle === CHECK_AISLE && !i.checked);
@@ -89,6 +98,18 @@ export default function Shopping({ api, items, viewer, onChange }) {
           </select>
           <button type="submit" className="calendar-add-item" disabled={busy || !name.trim()}>Add</button>
         </form>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
+          {onSync && <button type="button" className="chip-button" onClick={update} disabled={busy}>↻ Update from dinners</button>}
+          <span style={{ flex: 1 }} />
+          {items.length > 0 && (confirmClear ? (
+            <>
+              <span style={{ fontSize: 13, color: "var(--muted)" }}>Empty the whole list?</span>
+              <button type="button" className="danger-button" onClick={clearAll} disabled={busy}>Yes, clear it</button>
+              <button type="button" className="chip-button" onClick={() => setConfirmClear(false)}>No</button>
+            </>
+          ) : <button type="button" className="danger-ghost" onClick={() => setConfirmClear(true)} disabled={busy}>Clear list</button>)}
+        </div>
+        {synced && <p style={{ fontSize: 13, color: "var(--muted)", margin: "8px 0 0" }}>{synced}</p>}
         {error && <div className="alert" style={{ marginTop: 10 }}>{error}</div>}
 
         {groups.map(([s, list]) => (

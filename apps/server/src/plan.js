@@ -310,10 +310,9 @@ export function createPlan({ prisma, familyTz }) {
   });
 
   /* Everything the week's dinners need, added up, staples set apart. */
-  router.post("/shopping", async (req, res) => {
-    const start = String(req.body?.start || dayKey(new Date()));
-    const meals = await weekMeals(start);
-    const ids = meals.map((m) => m.recipeId).filter(Boolean);
+  /* What the given dinners need, added up by product. */
+  async function needFor(meals) {
+    const ids = [...new Set(meals.map((m) => m.recipeId).filter(Boolean))];
     const recipes = await prisma.recipe.findMany({ where: { id: { in: ids } }, select: { id: true, title: true, ingredients: true } });
     const byId = new Map(recipes.map((r) => [r.id, r]));
     const lines = new Map();
@@ -324,15 +323,83 @@ export function createPlan({ prisma, familyTz }) {
         const name = String(ing.item || "").trim();
         if (!name) continue;
         const key = itemKey(name);
-        const line = lines.get(key) || { name: nice(name), qty: [], aisle: ing.aisle || "Other", for: [], staple: isStaple(name) };
+        const line = lines.get(key) || { key, name: nice(name), qty: [], aisle: ing.aisle || "Other", for: [], ids: [], staple: isStaple(name) };
         if (ing.qty && ing.qty !== "to serve") line.qty.push(ing.qty);
         if (!line.for.includes(r.title)) line.for.push(r.title);
+        if (!line.ids.includes(r.id)) line.ids.push(r.id);
         lines.set(key, line);
       }
     }
     const prefs = await prefsFor(prisma, [...lines.values()].map((l) => l.name));
-    const all = [...lines.values()].map((l) => ({ ...l, qty: sumQty(l.qty), store: prefs.get(itemKey(l.name))?.store || null }))
+    return [...lines.values()].map((l) => ({ ...l, qty: sumQty(l.qty), store: prefs.get(l.key)?.store || null }))
       .sort((a, b) => AISLE_ORDER.indexOf(a.aisle) - AISLE_ORDER.indexOf(b.aisle) || a.name.localeCompare(b.name));
+  }
+
+  const getSetting = () => prisma.familySetting.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+
+  /* The cupboard check finished: remember which dinners this list covers. */
+  router.post("/listed", async (req, res) => {
+    const start = String(req.body?.start || dayKey(new Date()));
+    const { from, to } = range(start);
+    const meals = await weekMeals(start);
+    await getSetting();
+    await prisma.familySetting.update({ where: { id: 1 }, data: {
+      listFrom: from, listTo: to, listRecipeIds: [...new Set(meals.map((m) => m.recipeId).filter(Boolean))]
+    } });
+    res.json({ ok: true });
+  });
+
+  /* Keep the list in step with the dinners. Called after any change to the
+     plan (and by "Update from dinners"). Removing or swapping a dinner takes
+     its ingredients off - unless they're ticked, typed in by hand, or still
+     needed by another dinner. A new dinner's ingredients come back as
+     "ask", for a quick cupboard check of just those. */
+  router.post("/sync", async (_req, res) => {
+    const s = await getSetting();
+    if (!s.listFrom || !s.listTo) return res.json({ active: false, removed: 0, updated: 0, ask: [] });
+    const meals = await prisma.meal.findMany({ where: { plannedFor: { gte: s.listFrom, lt: s.listTo } } });
+    const current = new Set(meals.map((m) => m.recipeId).filter(Boolean));
+    const old = new Set(s.listRecipeIds || []);
+    const added = new Set([...current].filter((id) => !old.has(id)));
+    const needed = new Map((await needFor(meals)).map((l) => [l.key, l]));
+    const items = await prisma.shoppingItem.findMany();
+    let removed = 0, updated = 0;
+    const seen = new Set();
+
+    for (const it of items) {
+      const key = itemKey(it.name);
+      if (!it.checked) seen.add(key);
+      if (it.checked || !(it.recipeIds || []).length) continue;
+      const line = needed.get(key);
+      const keep = (line?.ids || []).filter((id) => it.recipeIds.includes(id) || added.has(id));
+      if (!keep.length) {
+        await prisma.shoppingItem.delete({ where: { id: it.id } }); removed++; seen.delete(key);
+        continue;
+      }
+      const forTitles = line.for.join(", ").slice(0, 200);
+      if (keep.join() !== it.recipeIds.join() || line.qty !== it.quantity || forTitles !== it.note) {
+        await prisma.shoppingItem.update({ where: { id: it.id }, data: { recipeIds: keep, quantity: line.qty, note: forTitles } });
+        updated++;
+      }
+    }
+
+    const ask = [];
+    for (const line of needed.values()) {
+      if (!line.ids.some((id) => added.has(id)) || seen.has(line.key)) continue;
+      if (line.staple) {
+        await prisma.shoppingItem.create({ data: { name: line.name, quantity: line.qty, aisle: "Check you have", note: line.for.join(", ").slice(0, 200), recipeIds: line.ids, store: line.store } });
+        updated++;
+      } else ask.push(line);
+    }
+    await prisma.familySetting.update({ where: { id: 1 }, data: { listRecipeIds: [...current] } });
+    res.json({ active: true, removed, updated, ask });
+  });
+
+  /* Everything the dinners need, for the cupboard check. */
+  router.post("/shopping", async (req, res) => {
+    const start = String(req.body?.start || dayKey(new Date()));
+    const meals = await weekMeals(start);
+    const all = await needFor(meals);
     res.json({ dinners: meals.length, buy: all.filter((l) => !l.staple), staples: all.filter((l) => l.staple) });
   });
 
@@ -375,12 +442,19 @@ export function createShopping({ prisma }) {
         data: items.map((i, n) => ({
           name: nice(String(i.name).trim().slice(0, 120)), quantity: i.qty ? String(i.qty).slice(0, 120) : null,
           store: cleanStore(i.store) || prefs.get(itemKey(i.name))?.store || null,
+          recipeIds: Array.isArray(i.ids) ? i.ids.map(Number).filter(Number.isInteger) : [],
           aisle: i.aisle || null, note: i.for?.length ? i.for.join(", ").slice(0, 200) : null,
           addedById, position: n
         }))
       });
     }
     res.json({ ok: true, added: items.length });
+  });
+  /* Start again: empty the list and forget which dinners it was for. */
+  router.delete("/", async (_req, res) => {
+    const { count } = await prisma.shoppingItem.deleteMany({});
+    await prisma.familySetting.updateMany({ where: { id: 1 }, data: { listFrom: null, listTo: null, listRecipeIds: [] } });
+    res.json({ ok: true, removed: count });
   });
   router.delete("/checked", async (_req, res) => {
     const { count } = await prisma.shoppingItem.deleteMany({ where: { checked: true } });

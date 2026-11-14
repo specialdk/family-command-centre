@@ -24,7 +24,8 @@ const monthOf = (k) => new Intl.DateTimeFormat("en-AU", { day: "numeric", month:
 const readGf = () => { try { return localStorage.getItem("fcc-plan-gf") === "1"; } catch { return false; } };
 const saveGf = (v) => { try { localStorage.setItem("fcc-plan-gf", v ? "1" : "0"); } catch { /* fine */ } };
 
-export function useWeekPlan(api) {
+export function useWeekPlan(api, { onSynced } = {}) {
+  const [ask, setAsk] = useState(null);   // a new dinner's ingredients, waiting for a quick cupboard check
   const [start, setStart] = useState(() => dayKey(new Date()));   // from tonight: past nights are not shown
   const [meals, setMeals] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -51,9 +52,20 @@ export function useWeekPlan(api) {
     document.addEventListener("visibilitychange", again);
     return () => document.removeEventListener("visibilitychange", again);
   }, [start]);
-  const run = async (fn) => { setError(""); try { await fn(); } catch (e) { setError(e.message); } await load(); };
+  /* After any change to the dinners, bring the shopping list into step. */
+  const sync = async () => {
+    try {
+      const r = await api("/api/plan/sync", { method: "POST" });
+      if (!r.active) return r;
+      if (r.ask?.length) setAsk(r.ask);
+      if (r.removed || r.updated) onSynced?.();
+      return r;
+    } catch { return null; }
+  };
+  const run = async (fn) => { setError(""); try { await fn(); } catch (e) { setError(e.message); } await load(); await sync(); };
   return {
     start, setStart, meals, requests, error, setError, reload: load,
+    newItems: ask, clearNewItems: () => setAsk(null), sync,
     ask: (recipeId, memberId) => run(() => api("/api/plan/requests", { method: "POST", body: JSON.stringify({ recipeId, memberId }) })),
     dismiss: (req) => run(() => api(`/api/plan/requests/${req.id}`, { method: "DELETE" })),
     byDay: Object.fromEntries(meals.map((m) => [m.day, m])),
@@ -258,13 +270,14 @@ export function PlanButtons({ plan, recipeId, onDone, viewer }) {
 }
 
 /* Check the cupboard, then add what's needed to the shopping list. */
-export function CupboardCheck({ api, plan, viewer, onClose, onAdded }) {
+export function CupboardCheck({ api, plan, viewer, onClose, onAdded, preset = null }) {
   const [list, setList] = useState(null);
   const [got, setGot] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (preset) { setList({ dinners: null, buy: preset, staples: [], onList: 0 }); return; }
     Promise.all([api("/api/plan/shopping", { method: "POST", body: JSON.stringify({ start: plan.start }) }), api("/api/dashboard")])
       .then(([l, dash]) => {
         const already = new Set((dash.shopping || []).filter((i) => !i.checked).map((i) => i.name.toLowerCase()));
@@ -281,6 +294,7 @@ export function CupboardCheck({ api, plan, viewer, onClose, onAdded }) {
         ...list.staples.map((x) => ({ ...x, aisle: CHECK_AISLE })),
       ];
       await api("/api/shopping/bulk", { method: "POST", body: JSON.stringify({ items, actorId: viewer?.id }) });
+      if (!preset) await api("/api/plan/listed", { method: "POST", body: JSON.stringify({ start: plan.start }) });
       onAdded?.(); onClose();
     } catch (e) { setError(e.message); setBusy(false); }
   };
@@ -291,11 +305,11 @@ export function CupboardCheck({ api, plan, viewer, onClose, onAdded }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="event-detail-sheet sheet-card" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto" }}>
         <p className="eyebrow">CHECK THE CUPBOARD</p>
-        <h2>What have we already got?</h2>
+        <h2>{preset ? "New dinner - anything to buy?" : "What have we already got?"}</h2>
         {!list ? <p style={{ color: "var(--muted)" }}>{error || "Adding up the week…"}</p> : (
           <>
             <p className="sheet-note" style={{ marginTop: 4 }}>
-              {list.dinners} dinner{list.dinners === 1 ? "" : "s"}. Tap <strong>Got it</strong> for anything that's already in the house.
+              {preset ? "The dinners changed, so the list has been updated. These are new - " : `${list.dinners} dinner${list.dinners === 1 ? "" : "s"}. `}Tap <strong>Got it</strong> for anything that's already in the house.
             </p>
             <div style={{ display: "grid", gap: 4, marginTop: 10 }}>
               {list.buy.map((x) => {
