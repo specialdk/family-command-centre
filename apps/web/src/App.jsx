@@ -9,12 +9,12 @@ import Ideas from "./Ideas.jsx";
 import RecipeBook from "./RecipeBook.jsx";
 import ShoppingList from "./Shopping.jsx";
 import { TonightCard } from "./MealPlan.jsx";
-import { usePhone, PhoneDay, NoticeLine, PhoneTiles, JadeBar, WhoSheet, ThisPhone, ScopeToggle } from "./PhoneHome.jsx";
+import { usePhone, PhoneDay, NoticeLine, PhoneTiles, JadeBar, WhoSheet, ThisPhone, ScopeToggle, JadeOrb } from "./PhoneHome.jsx";
 
 /* Nav mirrors Rhian's prototype. `ready` marks modules the API can serve today;
    the rest render an honest placeholder rather than fake data. */
 const NAV = [
-  { key: "today",       emoji: "🏠",        label: "Today",       ready: true, today: true, primary: true },
+  { key: "today",       emoji: "🏠",        label: "Home",        ready: true, today: true, primary: true },
   { key: "calendar",    emoji: "🗓️",        label: "Calendar",    ready: true, primary: true },
   { key: "tasks",       emoji: "✅",        label: "Tasks",       ready: true, primary: true },
   { key: "ideas",       emoji: "💡",        label: "Ideas",       ready: true },
@@ -283,7 +283,7 @@ export default function App() {
   const parents  = data.members.filter((m) => m.role === "PARENT").slice(0, 2);
 
   return (
-    <div className={`app-shell${phone ? " phone-shell" : ""}`}>
+    <div className={`app-shell${phone ? " phone-shell" : ""}${phone && tab === "today" ? " on-home" : ""}`}>
       <aside className="nav-rail">
         <div className="brand-mark"><span style={{ fontSize: 26 }}>🏡</span></div>
         <nav>
@@ -394,6 +394,7 @@ export default function App() {
                     onCompose={() => setComposing(true)} onRead={markNoticesRead} onHistory={openHistory} />
                 : <NoticeLine onHistory={openHistory} onCompose={() => setComposing(true)} />}
               <PhoneTiles api={api} version={ideasVersion} openTasks={openTasks} chores={myChores} upcoming={upcoming} go={setTab} />
+              <JadeOrb onTalk={() => { primeSpeech(); setJadeOpen(true); }} />
             </div>
           )}
           {phone && isParent && (tab === "calendar" || tab === "tasks") && (
@@ -457,7 +458,7 @@ export default function App() {
         </div>
       </div>
 
-      {phone && !jadeOpen && <JadeBar onTalk={() => { primeSpeech(); setJadeOpen(true); }} />}
+      {phone && tab !== "today" && !jadeOpen && <JadeBar onTalk={() => { primeSpeech(); setJadeOpen(true); }} />}
       {phone && askWho && data?.members?.length > 0 && <WhoSheet members={data.members} onPick={setThisPhone} />}
       {moreOpen && (
         <MoreSheet

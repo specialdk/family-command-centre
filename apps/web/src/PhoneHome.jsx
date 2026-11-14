@@ -66,21 +66,22 @@ export function NoticeLine({ onHistory, onCompose }) {
   );
 }
 
-function Tile({ title, count, alert, line, sub, pic, onClick }) {
+function Tile({ title, count, alert, line, sub, bg, onClick }) {
   return (
     <button type="button" onClick={onClick}
-      style={{ font: "inherit", textAlign: "left", cursor: "pointer", color: "var(--ink)", background: "#fff", minWidth: 0,
+      style={{ font: "inherit", textAlign: "left", cursor: "pointer", color: bg ? "#fff" : "var(--ink)", minWidth: 0,
+               background: bg ? `linear-gradient(to top, #000000b3 0%, #00000026 60%, #00000010 100%), center / cover no-repeat url("${bg}")` : "#fff",
+               alignContent: bg ? "space-between" : "start",
                border: `1px solid ${alert ? "var(--coral)" : "var(--line)"}`, borderRadius: 18, padding: 14,
-               display: "grid", gap: 8, alignContent: "start", minHeight: 122, boxShadow: "0 6px 18px #1d2a4a0d" }}>
+               display: "grid", gap: 8, minHeight: 122, boxShadow: "0 6px 18px #1d2a4a0d" }}>
       <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-        <span style={{ fontSize: 13, fontWeight: 850, color: "var(--muted)" }}>{title}</span>
+        <span style={{ fontSize: 13, fontWeight: 850, color: bg ? "#fff" : "var(--muted)", textShadow: bg ? "0 1px 3px #0008" : "none" }}>{title}</span>
         {count !== undefined && (
           <span style={{ minWidth: 26, height: 26, borderRadius: 999, display: "grid", placeItems: "center", padding: "0 7px", fontWeight: 900, fontSize: 14,
                          background: alert ? "var(--coral)" : count ? "var(--navy)" : "#eef0f6", color: alert || count ? "#fff" : "var(--muted)" }}>{count}</span>
         )}
       </span>
-      {pic}
-      <strong style={{ fontSize: 15, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{line}</strong>
+      <strong style={{ fontSize: 15, lineHeight: 1.3, textShadow: bg ? "0 1px 4px #000a" : "none", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{line}</strong>
       {sub && <small style={{ color: alert ? "var(--coral)" : "var(--muted)", fontWeight: alert ? 800 : 500 }}>{sub}</small>}
     </button>
   );
@@ -106,9 +107,8 @@ export function PhoneTiles({ api, version, openTasks, chores, upcoming, go }) {
 
   const routines = chores.filter((c) => !c.completed);
 
-  const pic = dinner?.recipe?.imageAt
-    ? <img src={`/api/recipes/${dinner.recipe.id}/image?v=${encodeURIComponent(dinner.recipe.imageAt)}`} alt=""
-           style={{ width: "100%", height: 56, objectFit: "cover", borderRadius: 10 }} />
+  const bg = dinner?.recipe?.imageAt
+    ? `/api/recipes/${dinner.recipe.id}/image?v=${encodeURIComponent(dinner.recipe.imageAt)}`
     : null;
 
   return (
@@ -118,8 +118,8 @@ export function PhoneTiles({ api, version, openTasks, chores, upcoming, go }) {
         sub={overdue ? `${overdue} overdue` : nextTask && whenOf(nextTask) ? when(whenOf(nextTask)) : null} />
       <Tile title="Coming up" count={soon.length} onClick={() => go("calendar")}
         line={nextEvent ? nextEvent.title : "Nothing scheduled"}
-        sub={nextEvent ? when(nextEvent.startsAt) : null} />
-      <Tile title="Tonight" onClick={() => go("recipes")} pic={pic}
+        sub={nextEvent ? (nextEvent.allDay ? `${sameDay(nextEvent.startsAt, now) ? "Today" : fmt(nextEvent.startsAt, { weekday: "short", day: "numeric", month: "short" })} · all day` : when(nextEvent.startsAt)) : null} />
+      <Tile title="Tonight" onClick={() => go("recipes")} bg={bg}
         line={dinner === undefined ? "…" : dinner ? dinner.name : "Nothing planned"}
         sub={dinner ? null : dinner === null ? "Tap to plan dinners" : null} />
       <Tile title="Routines" count={routines.length} onClick={() => go("tasks")}
@@ -176,5 +176,18 @@ export function ThisPhone({ members, viewer, onChange }) {
         ) : <button type="button" className="chip-button" style={{ marginTop: 10 }} onClick={() => setOpen(true)}>Change</button>
       ) : <p className="sheet-note" style={{ marginTop: 6 }}>Ask Mum or Dad if this needs changing.</p>}
     </section>
+  );
+}
+
+/* Home only: Jade as a big circle in the space under the tiles. It shrinks
+   as tiles are added above it, so the page never needs to scroll. */
+export function JadeOrb({ onTalk }) {
+  return (
+    <div className="jade-stage">
+      <button type="button" className="jade-orb" onClick={onTalk} aria-label="Talk to Jade">
+        <span className="voice-mark"><i /><i /><i /><i /></span>
+        <strong>Talk to Jade</strong>
+      </button>
+    </div>
   );
 }
