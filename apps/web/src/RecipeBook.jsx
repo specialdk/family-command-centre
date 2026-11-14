@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { usePhone } from "./PhoneHome.jsx";
 import { useWeekPlan, WeekStrip, DaySheet, PlanButtons, CupboardCheck, dayName } from "./MealPlan.jsx";
 
 /* The family's recipe book. Each card: title, a line, quick facts, and a
@@ -61,6 +62,7 @@ function Facts({ r }) {
 
 export default function RecipeBook({ api, viewer, members, onShopping }) {
   const plan = useWeekPlan(api);
+  const phone = usePhone();
   const [choosing, setChoosing] = useState(null);   // a night waiting for a recipe
   const [dayOpen, setDayOpen] = useState(null);     // { day, meal }
   const [cupboard, setCupboard] = useState(false);
@@ -119,21 +121,22 @@ export default function RecipeBook({ api, viewer, members, onShopping }) {
   const keep = shown.filter((r) => r.score > NOT_FOR_US);
   const notForUs = shown.filter((r) => r.score <= NOT_FOR_US);
 
-  const grid = { display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", marginTop: 12 };
+  const grid = { display: "grid", gap: 10, marginTop: 12,
+                 gridTemplateColumns: phone ? "repeat(2, minmax(0, 1fr))" : "repeat(auto-fill, minmax(250px, 1fr))" };
   const card = (r) => (
     <button key={r.id} type="button" draggable
       onDragStart={(e) => { e.dataTransfer.setData("text/recipe-id", String(r.id)); e.dataTransfer.setData("text/plain", String(r.id)); e.dataTransfer.effectAllowed = "copy"; }}
       onClick={() => { if (choosing) { plan.put(r.id, choosing); setChoosing(null); } else setOpenId(r.id); }}
       style={{ textAlign: "left", cursor: "pointer", border: "1px solid var(--line)", borderRadius: 14, background: "#fff",
-               padding: "10px 10px 12px", display: "grid", gap: 7, font: "inherit", color: "var(--ink)", alignContent: "start" }}>
-      <Picture r={r} height={150} />
-      <strong style={{ fontSize: 15, padding: "0 4px" }}>{r.title}</strong>
+               padding: phone ? 7 : "10px 10px 12px", display: "grid", gap: phone ? 5 : 7, font: "inherit", color: "var(--ink)", alignContent: "start", minWidth: 0 }}>
+      <Picture r={r} height={phone ? 118 : 150} />
+      <strong style={{ fontSize: phone ? 14 : 15, lineHeight: 1.25, padding: "0 4px" }}>{r.title}</strong>
       {plan.requests.some((w) => w.recipeId === r.id) && (
         <span style={{ fontSize: 12, color: "var(--coral)", fontWeight: 700, padding: "0 4px" }}>
           🙋 {plan.requests.filter((w) => w.recipeId === r.id).map((w) => w.member?.name || "someone").join(", ")} asked for this
         </span>
       )}
-      <span style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>{r.summary}</span>
+      {!phone && <span style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>{r.summary}</span>}
       <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <Facts r={r} />
         <Thumbs r={r} onRate={rate} busy={busy} />
@@ -142,7 +145,7 @@ export default function RecipeBook({ api, viewer, members, onShopping }) {
   );
 
   return (
-    <div style={{ display: "grid", gap: 18 }}>
+    <div style={{ display: "grid", gap: phone ? 14 : 18, gridTemplateColumns: "minmax(0, 1fr)" }}>
       <WeekStrip plan={plan} choosing={choosing} onMakeList={() => setCupboard(true)} viewer={viewer} onOpen={setOpenId}
         onDay={(d, m) => {
           if (m) { setChoosing(null); setDayOpen({ day: d, meal: m }); }
@@ -155,18 +158,20 @@ export default function RecipeBook({ api, viewer, members, onShopping }) {
           <h2>Recipes</h2>
           <span className="count-badge">{recipes?.length ?? "…"}</span>
         </div>
-        <p style={{ color: "var(--muted)", margin: "8px 0 12px", fontSize: 14 }}>
+        <p style={{ color: "var(--muted)", margin: "8px 0 12px", fontSize: 14, display: phone ? "none" : undefined }}>
           Give each one a 👍 or 👎. Favourites rise to the top, and anything the family doesn't want moves to "Not for us".
         </p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search - e.g. chicken, pasta, quick"
-                 style={{ flex: "1 1 220px", minWidth: 0 }} />
-          {FILTERS.map((f) => (
-            <button key={f.key} type="button" className="chip-button" onClick={() => setFilter(f.key)}
-              style={filter === f.key ? { background: "var(--navy)", color: "#fff" } : undefined}>{f.label}</button>
-          ))}
+        <div style={{ display: "flex", gap: 8, flexWrap: phone ? "nowrap" : "wrap", alignItems: "center", ...(phone ? { flexDirection: "column", alignItems: "stretch", marginTop: 10 } : {}) }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={phone ? "Search recipes" : "Search - e.g. chicken, pasta, quick"}
+                 style={{ flex: phone ? "none" : "1 1 220px", minWidth: 0 }} />
+          <div style={{ display: "flex", gap: 8, ...(phone ? { overflowX: "auto", paddingBottom: 4, margin: "0 -4px", padding: "0 4px 4px" } : { flexWrap: "wrap" }) }}>
+            {FILTERS.map((f) => (
+              <button key={f.key} type="button" className="chip-button" onClick={() => setFilter(f.key)}
+                style={{ flex: "0 0 auto", whiteSpace: "nowrap", ...(filter === f.key ? { background: "var(--navy)", color: "#fff" } : {}) }}>{f.label}</button>
+            ))}
+          </div>
         </div>
-        {isParent && pics && (missing > 0 || pics.job?.running) && (
+        {isParent && !phone && pics && (missing > 0 || pics.job?.running) && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 12, fontSize: 13, color: "var(--muted)" }}>
             {pics.job?.running ? (
               <span>🎨 Making pictures… {pics.job.done + pics.job.failed} of {pics.job.total} done{pics.job.failed ? ` (${pics.job.failed} failed)` : ""}. Carry on — they appear as they finish.</span>

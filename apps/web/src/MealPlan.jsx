@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePhone } from "./PhoneHome.jsx";
 
 /* The week's dinners, at the top of Recipes.
 
@@ -24,7 +25,7 @@ const readGf = () => { try { return localStorage.getItem("fcc-plan-gf") === "1";
 const saveGf = (v) => { try { localStorage.setItem("fcc-plan-gf", v ? "1" : "0"); } catch { /* fine */ } };
 
 export function useWeekPlan(api) {
-  const [start, setStart] = useState(() => mondayOf());
+  const [start, setStart] = useState(() => dayKey(new Date()));   // from tonight: past nights are not shown
   const [meals, setMeals] = useState([]);
   const [requests, setRequests] = useState([]);
   const [error, setError] = useState("");
@@ -50,7 +51,7 @@ export function useWeekPlan(api) {
 }
 
 function Thumb({ recipe, fill }) {
-  const box = { width: "100%", ...(fill ? { height: "100%" } : { aspectRatio: "4 / 3" }), borderRadius: fill ? 0 : 8, overflow: "hidden", background: "linear-gradient(135deg, #fff4e6, #eef6ff)", display: "grid", placeItems: "center", fontSize: fill ? 14 : 22 };
+  const box = { width: "100%", ...(fill ? { height: "100%" } : { aspectRatio: "4 / 3" }), borderRadius: fill ? 0 : 8, overflow: "hidden", background: "linear-gradient(135deg, #ffe3c4, #ffd6dc 55%, #dcecff)", display: "grid", placeItems: "center", fontSize: fill ? 14 : 22 };
   return <div style={box}>{recipe?.imageAt
     ? <img src={`/api/recipes/${recipe.id}/image?v=${encodeURIComponent(recipe.imageAt)}`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
     : <span aria-hidden="true">🍽️</span>}</div>;
@@ -84,13 +85,20 @@ function WishList({ plan, viewer, onOpen }) {
   );
 }
 
+const nightLabel = (d) => {
+  const t = dayKey(new Date());
+  return d === t ? "Tonight" : d === addDays(t, 1) ? "Tomorrow" : `${dayName(d)} ${dayNum(d)}`;
+};
+
 export function WeekStrip({ plan, onDay, choosing, onMakeList, viewer, onOpen }) {
+  const phone = usePhone();
   const [gf, setGf] = useState(readGf);
   const [over, setOver] = useState(null);
   const [busy, setBusy] = useState(false);
   const today = dayKey(new Date());
   const days = weekDays(plan.start);
   const empty = days.filter((d) => !plan.byDay[d]).length;
+  const atToday = plan.start <= today;
 
   const drop = (e, d) => {
     e.preventDefault(); setOver(null);
@@ -98,55 +106,85 @@ export function WeekStrip({ plan, onDay, choosing, onMakeList, viewer, onOpen })
     if (id) plan.put(id, d);
   };
   const fill = async () => { setBusy(true); await plan.fill(gf); setBusy(false); };
+  const back = () => { const b = addDays(plan.start, -7); plan.setStart(b < today ? today : b); };
+
+  const card = (d) => {
+    const m = plan.byDay[d];
+    const isChoosing = choosing === d;
+    const lit = isChoosing || over === d;
+    const tonight = d === today;
+    return (
+      <button key={d} type="button" onClick={() => onDay(d, m)}
+        onDragOver={(e) => { e.preventDefault(); setOver(d); }} onDragLeave={() => setOver(null)} onDrop={(e) => drop(e, d)}
+        style={{ font: "inherit", textAlign: "left", cursor: "pointer", padding: 6, borderRadius: 14, display: "grid", gap: 5, alignContent: "start",
+                 minHeight: phone ? 150 : 122, minWidth: 0, color: "var(--ink)", background: lit ? "#eef6ff" : tonight ? "#fff6ec" : "#fff",
+                 ...(phone ? { flex: "0 0 138px", scrollSnapAlign: "start" } : {}),
+                 border: `${lit || tonight ? 2 : 1}px ${m ? "solid" : "dashed"} ${lit ? "var(--navy)" : tonight ? "var(--coral)" : "var(--line)"}` }}>
+        <span style={{ fontSize: 12, fontWeight: 850, color: tonight ? "var(--coral)" : "var(--muted)" }}>{nightLabel(d)}</span>
+        {m ? (
+          <>
+            <Thumb recipe={m.recipe} />
+            <span style={{ fontSize: 13, lineHeight: 1.3, fontWeight: 700 }}>{m.name}</span>
+          </>
+        ) : (
+          <span style={{ fontSize: 12, color: "#98a0ad", alignSelf: "center", textAlign: "center", paddingTop: 28 }}>{isChoosing ? "Now tap a recipe ↓" : "+ Add"}</span>
+        )}
+      </button>
+    );
+  };
+
+  const gfBox = (
+    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14 }}>
+      <input type="checkbox" checked={gf} onChange={(e) => { setGf(e.target.checked); saveGf(e.target.checked); }} /> Gluten free only
+    </label>
+  );
 
   return (
-    <section className="agenda-card">
+    <section className="agenda-card" style={{ minWidth: 0 }}>
       <div className="section-title" style={{ flexWrap: "wrap", gap: 8 }}>
-        <h2>Dinners this week</h2>
+        <h2>Dinners</h2>
         <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button type="button" className="chip-button" onClick={() => plan.setStart(addDays(plan.start, -7))} aria-label="Previous week">‹</button>
-          <span style={{ fontSize: 13, color: "var(--muted)", minWidth: 110, textAlign: "center" }}>{monthOf(days[0])} – {monthOf(days[6])}</span>
-          <button type="button" className="chip-button" onClick={() => plan.setStart(addDays(plan.start, 7))} aria-label="Next week">›</button>
+          <button type="button" className="chip-button" onClick={back} disabled={atToday} aria-label="Earlier">‹</button>
+          <span style={{ fontSize: 13, color: "var(--muted)", minWidth: 96, textAlign: "center" }}>{atToday ? "From tonight" : `${monthOf(days[0])} – ${monthOf(days[6])}`}</span>
+          <button type="button" className="chip-button" onClick={() => plan.setStart(addDays(plan.start, 7))} aria-label="Next 7 nights">›</button>
         </span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(120px, 1fr))", gap: 8, marginTop: 12, overflowX: "auto", paddingBottom: 4 }}>
-        {days.map((d) => {
-          const m = plan.byDay[d];
-          const isChoosing = choosing === d;
-          return (
-            <button key={d} type="button" onClick={() => onDay(d, m)}
-              onDragOver={(e) => { e.preventDefault(); setOver(d); }} onDragLeave={() => setOver(null)} onDrop={(e) => drop(e, d)}
-              style={{ font: "inherit", textAlign: "left", cursor: "pointer", padding: 6, borderRadius: 12, display: "grid", gap: 5, alignContent: "start", minHeight: 122,
-                       background: over === d || isChoosing ? "#eef6ff" : "#fff", color: "var(--ink)",
-                       border: `${isChoosing || over === d ? 2 : 1}px ${m ? "solid" : "dashed"} ${isChoosing || over === d ? "var(--navy)" : d === today ? "var(--coral)" : "var(--line)"}` }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: d === today ? "var(--coral)" : "var(--muted)" }}>{dayName(d)} {dayNum(d)}</span>
-              {m ? (
-                <>
-                  <Thumb recipe={m.recipe} size={56} />
-                  <span style={{ fontSize: 13, lineHeight: 1.3, fontWeight: 700 }}>{m.name}</span>
-                </>
-              ) : (
-                <span style={{ fontSize: 12, color: "#98a0ad", alignSelf: "center", textAlign: "center", paddingTop: 22 }}>{isChoosing ? "Now tap a recipe ↓" : "+ Add"}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {phone ? (
+        <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 4px 6px", margin: "12px -4px 0" }}>
+          {days.map(card)}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 8, marginTop: 12 }}>
+          {days.map(card)}
+        </div>
+      )}
 
       <WishList plan={plan} viewer={viewer} onOpen={onOpen} />
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
-        <button type="button" className="calendar-add-item" onClick={fill} disabled={busy || !empty}>
-          {busy ? "Planning…" : empty ? `✨ Plan my week (${empty} night${empty === 1 ? "" : "s"})` : "✨ Week's planned"}
-        </button>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14 }}>
-          <input type="checkbox" checked={gf} onChange={(e) => { setGf(e.target.checked); saveGf(e.target.checked); }} /> Gluten free only
-        </label>
-        <span style={{ flex: 1 }} />
-        <button type="button" className="chip-button" onClick={onMakeList} disabled={!plan.meals.length}>🛒 Make shopping list</button>
-      </div>
-      <p style={{ fontSize: 12, color: "#98a0ad", margin: "8px 0 0" }}>Drag a recipe onto a night, or tap a night and then a recipe. Favourites come first; nothing repeats within a fortnight.</p>
+      {phone ? (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+            <button type="button" className="calendar-add-item" onClick={fill} disabled={busy || !empty} style={{ justifyContent: "center" }}>
+              {busy ? "Planning…" : empty ? "✨ Plan the rest" : "✨ All planned"}
+            </button>
+            <button type="button" className="chip-button" onClick={onMakeList} disabled={!plan.meals.length} style={{ justifyContent: "center" }}>🛒 Shopping list</button>
+          </div>
+          <div style={{ marginTop: 10 }}>{gfBox}</div>
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+            <button type="button" className="calendar-add-item" onClick={fill} disabled={busy || !empty}>
+              {busy ? "Planning…" : empty ? `✨ Plan the rest (${empty} night${empty === 1 ? "" : "s"})` : "✨ All planned"}
+            </button>
+            {gfBox}
+            <span style={{ flex: 1 }} />
+            <button type="button" className="chip-button" onClick={onMakeList} disabled={!plan.meals.length}>🛒 Make shopping list</button>
+          </div>
+          <p style={{ fontSize: 12, color: "#98a0ad", margin: "8px 0 0" }}>Drag a recipe onto a night, or tap a night and then a recipe. Favourites come first; nothing repeats within a fortnight.</p>
+        </>
+      )}
       {plan.error && <div className="alert" style={{ marginTop: 10 }}>{plan.error}</div>}
     </section>
   );
@@ -192,7 +230,7 @@ export function PlanButtons({ plan, recipeId, onDone, viewer }) {
               title={m && !here ? `Replaces ${m.name}` : undefined}
               onClick={async () => { await plan.put(recipeId, d); onDone?.(d); }}
               style={here ? { background: "var(--mint)", fontWeight: 800 } : m ? { opacity: 0.7 } : undefined}>
-              {here ? "✓ " : ""}{dayName(d)}{m && !here ? " •" : ""}
+              {here ? "✓ " : ""}{nightLabel(d)}{m && !here ? " •" : ""}
             </button>
           );
         })}
