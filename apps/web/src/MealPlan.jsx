@@ -119,7 +119,7 @@ const nightLabel = (d) => {
   return d === t ? "Tonight" : d === addDays(t, 1) ? "Tomorrow" : `${dayName(d)} ${dayNum(d)}`;
 };
 
-export function WeekStrip({ plan, onDay, choosing, onMakeList, viewer, onOpen }) {
+export function WeekStrip({ plan, onDay, choosing, onMakeList, viewer, onOpen, vertical = false }) {
   const phone = usePhone();
   const [gf, setGf] = useState(readGf);
   const [over, setOver] = useState(null);
@@ -136,6 +136,28 @@ export function WeekStrip({ plan, onDay, choosing, onMakeList, viewer, onOpen })
   };
   const fill = async () => { setBusy(true); await plan.fill(gf); setBusy(false); };
   const back = () => { const b = addDays(plan.start, -7); plan.setStart(b < today ? today : b); };
+
+  /* Desktop sidebar: one row per night, a drop target for dragged recipes. */
+  const row = (d) => {
+    const m = plan.byDay[d];
+    const lit = choosing === d || over === d;
+    const tonight = d === today;
+    return (
+      <button key={d} type="button" onClick={() => onDay(d, m)}
+        onDragOver={(e) => { e.preventDefault(); setOver(d); }} onDragLeave={() => setOver(null)} onDrop={(e) => drop(e, d)}
+        style={{ font: "inherit", textAlign: "left", cursor: "pointer", display: "flex", gap: 10, alignItems: "center", padding: 6, borderRadius: 12, width: "100%",
+                 color: "var(--ink)", background: lit ? "#eef6ff" : tonight ? "#fff6ec" : "#fff",
+                 border: `${lit || tonight ? 2 : 1}px ${m ? "solid" : "dashed"} ${lit ? "var(--navy)" : tonight ? "var(--coral)" : "var(--line)"}` }}>
+        <span style={{ width: 64, flex: "0 0 auto" }}>{m ? <Thumb recipe={m.recipe} /> : <span style={{ display: "block", aspectRatio: "4 / 3", borderRadius: 8, background: "#f4f6fb" }} />}</span>
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <span style={{ display: "block", fontSize: 12, fontWeight: 850, color: tonight ? "var(--coral)" : "var(--muted)" }}>{nightLabel(d)}</span>
+          <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: m ? "var(--ink)" : "#a6adba" }}>
+            {m ? m.name : choosing === d ? "Now pick a recipe ←" : "Drop a recipe here"}
+          </span>
+        </span>
+      </button>
+    );
+  };
 
   const card = (d) => {
     const m = plan.byDay[d];
@@ -179,7 +201,9 @@ export function WeekStrip({ plan, onDay, choosing, onMakeList, viewer, onOpen })
         </span>
       </div>
 
-      {phone ? (
+      {vertical ? (
+        <div style={{ display: "grid", gap: 6, marginTop: 12 }}>{days.map(row)}</div>
+      ) : phone ? (
         <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 4px 6px", margin: "12px -4px 0" }}>
           {days.map(card)}
         </div>
@@ -191,7 +215,7 @@ export function WeekStrip({ plan, onDay, choosing, onMakeList, viewer, onOpen })
 
       <WishList plan={plan} viewer={viewer} onOpen={onOpen} />
 
-      {phone ? (
+      {phone || vertical ? (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
             <button type="button" className="calendar-add-item" onClick={fill} disabled={busy || !empty} style={{ justifyContent: "center" }}>

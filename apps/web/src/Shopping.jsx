@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { CHECK_AISLE } from "./MealPlan.jsx";
+import { usePhone } from "./PhoneHome.jsx";
 
 /* The shopping list, the way Rhian shops: by store, then in the order you
    walk the aisles. Each product remembers its usual store - pick ALDI for
@@ -15,6 +16,7 @@ const recallStore = () => { try { return localStorage.getItem(LAST_STORE) || "";
 const saveStore = (s) => { try { localStorage.setItem(LAST_STORE, s); } catch { /* fine */ } };
 
 export default function Shopping({ api, items, viewer, onChange, onSync }) {
+  const phone = usePhone();
   const [confirmClear, setConfirmClear] = useState(false);
   const [synced, setSynced] = useState("");
   const [name, setName] = useState("");
@@ -86,75 +88,105 @@ export default function Shopping({ api, items, viewer, onChange, onSync }) {
     </div>
   );
 
-  return (
-    <div style={{ display: "grid", gap: 14, maxWidth: 720, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
-      <section className="task-card" style={{ minWidth: 0, padding: "16px 14px" }}>
-        <div className="section-title"><h2>Shopping list</h2><span className="count-badge">{left.length}</span></div>
-        <form onSubmit={add} style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Add an item" style={{ flex: 1, minWidth: 0 }} />
-          <select value={store} onChange={(e) => { setStore(e.target.value); saveStore(e.target.value); }} aria-label="Store" style={{ width: 104, flex: "0 0 auto", fontSize: 14 }}>
-            <option value="">Usual shop</option>
-            {STORES.map((s) => <option key={s}>{s}</option>)}
-          </select>
-          <button type="submit" className="calendar-add-item" disabled={busy || !name.trim()}>Add</button>
-        </form>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10, alignItems: "center", justifyContent: "space-between" }}>
-          {onSync && <button type="button" className="chip-button" onClick={update} disabled={busy}>↻ Update from dinners</button>}
-          {items.length > 0 && (confirmClear ? (
-            <>
-              <span style={{ fontSize: 13, color: "var(--muted)" }}>Empty the whole list?</span>
-              <button type="button" className="danger-button" onClick={clearAll} disabled={busy}>Yes, clear it</button>
-              <button type="button" className="chip-button" onClick={() => setConfirmClear(false)}>No</button>
-            </>
-          ) : <button type="button" className="danger-ghost" onClick={() => setConfirmClear(true)} disabled={busy} style={{ width: "auto", flex: "0 0 auto" }}>Clear list</button>)}
+  const header = (
+    <>
+      <div className="section-title"><h2>Shopping list</h2><span className="count-badge">{left.length}</span></div>
+      <form onSubmit={add} style={{ display: "flex", gap: 8, marginTop: 10, maxWidth: phone ? "none" : 560 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Add an item" style={{ flex: 1, minWidth: 0 }} />
+        <select value={store} onChange={(e) => { setStore(e.target.value); saveStore(e.target.value); }} aria-label="Store" style={{ width: 104, flex: "0 0 auto", fontSize: 14 }}>
+          <option value="">Usual shop</option>
+          {STORES.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <button type="submit" className="calendar-add-item" disabled={busy || !name.trim()}>Add</button>
+      </form>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10, alignItems: "center", justifyContent: "space-between" }}>
+        {onSync && <button type="button" className="chip-button" onClick={update} disabled={busy}>↻ Update from dinners</button>}
+        {items.length > 0 && (confirmClear ? (
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>Empty the whole list?</span>
+            <button type="button" className="danger-button" onClick={clearAll} disabled={busy}>Yes, clear it</button>
+            <button type="button" className="chip-button" onClick={() => setConfirmClear(false)}>No</button>
+          </span>
+        ) : <button type="button" className="danger-ghost" onClick={() => setConfirmClear(true)} disabled={busy} style={{ width: "auto", flex: "0 0 auto" }}>Clear list</button>)}
+      </div>
+      {synced && <p style={{ fontSize: 13, color: "var(--muted)", margin: "8px 0 0" }}>{synced}</p>}
+      {error && <div className="alert" style={{ marginTop: 10 }}>{error}</div>}
+    </>
+  );
+
+  const storeBlock = ([s, list]) => (
+    <>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, borderBottom: "2px solid var(--navy)", paddingBottom: 4 }}>
+        <h3 style={{ margin: 0, fontSize: 17, fontWeight: 900, flex: 1 }}>{s}</h3>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "var(--muted)" }}>{list.length}</span>
+      </div>
+      {byAisle(list).map(([a, l]) => (
+        <div key={a || "other"}>
+          <p className="eyebrow" style={{ margin: "10px 0 0" }}>{(a || "Other").toUpperCase()}</p>
+          {l.map(row)}
         </div>
-        {synced && <p style={{ fontSize: 13, color: "var(--muted)", margin: "8px 0 0" }}>{synced}</p>}
-        {error && <div className="alert" style={{ marginTop: 10 }}>{error}</div>}
+      ))}
+    </>
+  );
+  const empty = !left.length && <p style={{ color: "var(--muted)", marginTop: 14 }}>Nothing left to buy. Plan the dinners, then tap <strong>Shopping list</strong> on the Plan tab.</p>;
 
-        {groups.map(([s, list]) => (
-          <div key={s} style={{ marginTop: 16 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, borderBottom: "2px solid var(--navy)", paddingBottom: 4 }}>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 900, flex: 1 }}>{s}</h3>
-              <span style={{ fontSize: 13, fontWeight: 800, color: "var(--muted)" }}>{list.length}</span>
-            </div>
-            {byAisle(list).map(([a, l]) => (
-              <div key={a || "other"}>
-                <p className="eyebrow" style={{ margin: "10px 0 0" }}>{(a || "Other").toUpperCase()}</p>
-                {l.map(row)}
-              </div>
-            ))}
+  const checkBlock = check.length > 0 && (
+    <div style={{ padding: "10px 12px", borderRadius: 14, background: "color-mix(in srgb, var(--sun) 14%, white)", border: "1px solid color-mix(in srgb, var(--sun) 45%, white)" }}>
+      <p className="eyebrow" style={{ margin: 0 }}>CHECK YOU HAVE · {check.length}</p>
+      <p style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 2px" }}>The dinners use these. <strong>Need it</strong> adds one to the list; × means you've got it.</p>
+      {check.map((i) => (
+        <div key={i.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", borderBottom: "1px solid color-mix(in srgb, var(--sun) 30%, white)", minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <strong>{i.name}</strong>{i.quantity && <span style={{ color: "var(--muted)" }}> · {i.quantity}</span>}
           </div>
-        ))}
-        {!left.length && <p style={{ color: "var(--muted)", marginTop: 14 }}>Nothing left to buy. Plan the dinners, then tap <strong>Shopping list</strong> on the Plan tab.</p>}
+          <button type="button" className="chip-button" onClick={() => patch(i, { aisle: "Pantry" })} disabled={busy} style={{ padding: "4px 10px", flex: "0 0 auto" }}>Need it</button>
+          <button type="button" onClick={() => drop(i)} disabled={busy} aria-label="Got it"
+            style={{ border: 0, background: "none", color: "#98a0ad", fontSize: 18, cursor: "pointer", flex: "0 0 auto" }}>×</button>
+        </div>
+      ))}
+    </div>
+  );
 
-        {check.length > 0 && (
-          <div style={{ marginTop: 18, padding: "10px 12px", borderRadius: 14, background: "color-mix(in srgb, var(--sun) 14%, white)", border: "1px solid color-mix(in srgb, var(--sun) 45%, white)" }}>
-            <p className="eyebrow" style={{ margin: 0 }}>CHECK YOU HAVE · {check.length}</p>
-            <p style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 2px" }}>The dinners use these. <strong>Need it</strong> adds one to the list; × means you've got it.</p>
-            {check.map((i) => (
-              <div key={i.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", borderBottom: "1px solid color-mix(in srgb, var(--sun) 30%, white)", minWidth: 0 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <strong>{i.name}</strong>{i.quantity && <span style={{ color: "var(--muted)" }}> · {i.quantity}</span>}
-                </div>
-                <button type="button" className="chip-button" onClick={() => patch(i, { aisle: "Pantry" })} disabled={busy} style={{ padding: "4px 10px", flex: "0 0 auto" }}>Need it</button>
-                <button type="button" onClick={() => drop(i)} disabled={busy} aria-label="Got it"
-                  style={{ border: 0, background: "none", color: "#98a0ad", fontSize: 18, cursor: "pointer", flex: "0 0 auto" }}>×</button>
-              </div>
-            ))}
-          </div>
-        )}
+  const trolleyBlock = ticked.length > 0 && (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <p className="eyebrow">IN THE TROLLEY · {ticked.length}</p>
+        <button type="button" className="chip-button" onClick={clearTicked} disabled={busy}>Clear ticked</button>
+      </div>
+      {ticked.map(row)}
+    </div>
+  );
 
-        {ticked.length > 0 && (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <p className="eyebrow">IN THE TROLLEY · {ticked.length}</p>
-              <button type="button" className="chip-button" onClick={clearTicked} disabled={busy}>Clear ticked</button>
-            </div>
-            {ticked.map(row)}
-          </div>
-        )}
-      </section>
+  /* Phone: one list to scroll through in the shop. */
+  if (phone) {
+    return (
+      <div style={{ display: "grid", gap: 14, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
+        <section className="task-card" style={{ minWidth: 0, padding: "16px 14px" }}>
+          {header}
+          {groups.map((g) => <div key={g[0]} style={{ marginTop: 16 }}>{storeBlock(g)}</div>)}
+          {empty}
+          {checkBlock && <div style={{ marginTop: 18 }}>{checkBlock}</div>}
+          {trolleyBlock && <div style={{ marginTop: 18 }}>{trolleyBlock}</div>}
+        </section>
+      </div>
+    );
+  }
 
+  /* Desktop: a column per store (Rhian's original layout), with Check you
+     have and the trolley down the right. */
+  return (
+    <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
+      <section className="task-card" style={{ minWidth: 0 }}>{header}{empty}</section>
+      <div style={{ display: "grid", gap: 16, alignItems: "start", gridTemplateColumns: "minmax(0, 1fr) 320px" }}>
+        <div style={{ display: "grid", gap: 16, alignItems: "start", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", minWidth: 0 }}>
+          {groups.map((g) => <section key={g[0]} className="task-card" style={{ minWidth: 0, padding: "14px 16px" }}>{storeBlock(g)}</section>)}
+        </div>
+        <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
+          {checkBlock}
+          {trolleyBlock && <section className="task-card" style={{ minWidth: 0, padding: "14px 16px" }}>{trolleyBlock}</section>}
+          {!checkBlock && !trolleyBlock && <p style={{ color: "#a6adba", fontSize: 13, margin: 0 }}>Ticked items and staples to check show here.</p>}
+        </div>
+      </div>
     </div>
   );
 }

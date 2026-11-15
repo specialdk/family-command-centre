@@ -132,8 +132,11 @@ export default function RecipeBook({ api, viewer, members, onShopping, plan, cho
   const keep = shown.filter((r) => r.score > NOT_FOR_US);
   const notForUs = shown.filter((r) => r.score <= NOT_FOR_US);
 
+  /* Desktop Plan: the recipe book on the left, the dinners down the right -
+     drag a recipe across onto a night. */
+  const side = !phone && mode === "plan";
   const grid = { display: "grid", gap: 10, marginTop: 12,
-                 gridTemplateColumns: phone ? "repeat(2, minmax(0, 1fr))" : "repeat(auto-fill, minmax(250px, 1fr))" };
+                 gridTemplateColumns: phone ? "repeat(2, minmax(0, 1fr))" : `repeat(auto-fill, minmax(${side ? 210 : 250}px, 1fr))` };
   const card = (r) => (
     <button key={r.id} type="button" draggable
       onDragStart={(e) => { e.dataTransfer.setData("text/recipe-id", String(r.id)); e.dataTransfer.setData("text/plain", String(r.id)); e.dataTransfer.effectAllowed = "copy"; }}
@@ -156,8 +159,9 @@ export default function RecipeBook({ api, viewer, members, onShopping, plan, cho
   );
 
   return (
-    <div style={{ display: "grid", gap: phone ? 14 : 18, gridTemplateColumns: "minmax(0, 1fr)" }}>
-      {showStrip && <WeekStrip plan={plan} choosing={choosing} onMakeList={() => setCupboard(true)} viewer={viewer} onOpen={setOpenId}
+    <div style={{ display: "grid", gap: phone ? 14 : 18, gridTemplateColumns: side ? "minmax(0, 1fr) 360px" : "minmax(0, 1fr)", alignItems: "start" }}>
+      <div style={side ? { gridColumn: 2, gridRow: 1, position: "sticky", top: 12, display: "grid", gap: 12, maxHeight: "calc(100vh - 24px)", overflowY: "auto" } : { display: "grid", gap: phone ? 14 : 18 }}>
+      {showStrip && <WeekStrip plan={plan} vertical={side} choosing={choosing} onMakeList={() => setCupboard(true)} viewer={viewer} onOpen={setOpenId}
         onDay={(d, m) => {
           if (m) { setChoosing(null); setDayOpen({ day: d, meal: m }); }
           else if (choosing === d) setChoosing(null);
@@ -169,8 +173,9 @@ export default function RecipeBook({ api, viewer, members, onShopping, plan, cho
           {onGoTab && <button type="button" className="chip-button" onClick={() => onGoTab("shopping")}>Open the list →</button>}
         </div>
       )}
+      </div>
 
-      {showBook && (<>
+      {showBook && (<div style={{ display: "grid", gap: phone ? 14 : 18, minWidth: 0, ...(side ? { gridColumn: 1, gridRow: 1 } : {}) }}>
       <section className="agenda-card" ref={listRef}>
         <div className="section-title">
           <h2>Recipes</h2>
@@ -227,7 +232,7 @@ export default function RecipeBook({ api, viewer, members, onShopping, plan, cho
           {showNot && <div style={grid}>{notForUs.map(card)}</div>}
         </section>
       )}
-      </>)}
+      </div>)}
 
       {dayOpen && (
         <DaySheet day={dayOpen.day} meal={dayOpen.meal} onClose={() => setDayOpen(null)}
