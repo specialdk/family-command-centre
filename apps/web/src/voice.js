@@ -63,6 +63,14 @@ export function sayAs(text, pronunciations) {
   return out;
 }
 
+/* The other way round, for anything written down: Jade speaks "Ryan" and
+   her transcript comes back spelt that way, but the screen and the saved
+   record should say Rhian. */
+export function writtenAs(text, pronunciations) {
+  if (!pronunciations) return String(text || "");
+  return sayAs(text, Object.fromEntries(Object.entries(pronunciations).map(([name, say]) => [say, name])));
+}
+
 const DAYS = { Mon:"Monday", Tue:"Tuesday", Wed:"Wednesday", Thu:"Thursday",
                Fri:"Friday", Sat:"Saturday", Sun:"Sunday" };
 const MONTHS = { Jan:"January", Feb:"February", Mar:"March", Apr:"April",

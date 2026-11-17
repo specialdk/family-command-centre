@@ -121,6 +121,7 @@ export default function Jade({ viewer, members = [], about = null, idea = null, 
         speaker: viewer?.name || null,
         aboutTaskId: about?.id ?? null,
         idea,
+        pronunciations,
         onEvent: (e) => {
           if (e.kind === "said")      { setHeard(e.text); setAsked(e.text); }
           if (e.kind === "reply")     { setReply(e.text); setHeard(""); }

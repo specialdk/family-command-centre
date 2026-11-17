@@ -577,7 +577,7 @@ function Notices({ unread, members, viewer, onCompose, onRead, onHistory }) {
       <div className="family-notification-heading">
         <div>
           <p className="eyebrow">FAMILY NOTIFICATIONS</p>
-          <h2>{unread.length ? `${unread.length} new` : "Everyone is up to date"}</h2>
+          <h2>{unread.length ? `${unread.length} new` : "No new family notices"}</h2>
         </div>
         <div className="notice-head-actions">
           <button className="notice-history-link" onClick={onHistory}>Recent activity →</button>

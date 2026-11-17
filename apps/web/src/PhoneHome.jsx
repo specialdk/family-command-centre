@@ -59,7 +59,7 @@ export function PhoneDay({ viewer, isParent, scope, setScope, todayCount }) {
 export function NoticeLine({ onHistory, onCompose }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 4px 0", fontSize: 14 }}>
-      <span style={{ color: "var(--muted)", flex: 1 }}>✓ Everyone's up to date</span>
+      <span style={{ color: "var(--muted)", flex: 1 }}>✓ No new family notices</span>
       <button type="button" onClick={onHistory} style={{ border: 0, background: "none", color: "var(--navy)", fontWeight: 800, font: "inherit", cursor: "pointer", padding: 0 }}>Activity →</button>
       <button type="button" className="chip-button" onClick={onCompose} aria-label="Notify the family" style={{ padding: "4px 12px" }}>＋</button>
     </div>

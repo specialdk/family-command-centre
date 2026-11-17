@@ -357,7 +357,11 @@ export function createPlan({ prisma, familyTz }) {
   router.post("/sync", async (_req, res) => {
     const s = await getSetting();
     if (!s.listFrom || !s.listTo) return res.json({ active: false, removed: 0, updated: 0, ask: [] });
-    const meals = await prisma.meal.findMany({ where: { plannedFor: { gte: s.listFrom, lt: s.listTo } } });
+    /* The list covers tonight and the next seven days, not the week it was
+       first made for: dinners already eaten drop off, and the days ahead
+       come in as the week rolls on. */
+    const { from, to } = range(dayKey(new Date()));
+    const meals = await prisma.meal.findMany({ where: { plannedFor: { gte: from, lt: to } } });
     const current = new Set(meals.map((m) => m.recipeId).filter(Boolean));
     const old = new Set(s.listRecipeIds || []);
     const added = new Set([...current].filter((id) => !old.has(id)));
@@ -391,7 +395,7 @@ export function createPlan({ prisma, familyTz }) {
         updated++;
       } else ask.push(line);
     }
-    await prisma.familySetting.update({ where: { id: 1 }, data: { listRecipeIds: [...current] } });
+    await prisma.familySetting.update({ where: { id: 1 }, data: { listFrom: from, listTo: to, listRecipeIds: [...current] } });
     res.json({ active: true, removed, updated, ask });
   });
 

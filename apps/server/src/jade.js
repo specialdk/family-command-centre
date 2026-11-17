@@ -185,6 +185,13 @@ const READ_NAMES = new Set(READ_TOOLS.map((t) => t.name));
    way to choose is to listen. */
 const REALTIME_MODEL = process.env.JADE_REALTIME_MODEL || "gpt-realtime-2.1";
 const REALTIME_VOICE = process.env.JADE_VOICE || "marin";
+/* Without this the model hears the person but never writes down what they
+   said, so a saved idea kept only Jade's half of the conversation. */
+const TRANSCRIBE_MODEL = process.env.JADE_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
+const realtimeAudio = (withTranscript = true) => ({
+  ...(withTranscript && TRANSCRIBE_MODEL !== "off" ? { input: { transcription: { model: TRANSCRIBE_MODEL, language: "en" } } } : {}),
+  output: { voice: REALTIME_VOICE }
+});
 
 /* `strict: false` on purpose. Strict mode requires every property to be
    required and additionalProperties false; half of these are genuinely
@@ -800,7 +807,13 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
     try {
       const s = await snapshot();
       const speaker = await findMember(req.body?.speaker);
-      const r = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+      const instructions = systemPrompt(s, {
+        spoken: true,
+        speaker: speaker?.name || null,
+        about: (await aboutLine(req.body?.aboutTaskId)) || (ideas ? await ideas.aboutLine(req.body?.idea, speaker) : null),
+        ideaList: ideas ? await ideas.listForPrompt(speaker) : null
+      });
+      const mint = (withTranscript) => fetch("https://api.openai.com/v1/realtime/client_secrets", {
         method: "POST",
         headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -808,19 +821,22 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
           session: {
             type: "realtime",
             model: REALTIME_MODEL,
-            instructions: systemPrompt(s, {
-              spoken: true,
-              speaker: speaker?.name || null,
-              about: (await aboutLine(req.body?.aboutTaskId)) || (ideas ? await ideas.aboutLine(req.body?.idea, speaker) : null),
-        ideaList: ideas ? await ideas.listForPrompt(speaker) : null
-            }),
-            audio: { output: { voice: REALTIME_VOICE } },
+            instructions,
+            audio: realtimeAudio(withTranscript),
             tools: REALTIME_TOOLS,
             tool_choice: "auto"
           }
         })
       });
-      const data = await r.json().catch(() => ({}));
+      let r = await mint(true);
+      let data = await r.json().catch(() => ({}));
+      /* A transcription model OpenAI has renamed must not cost the family
+         their voice: try once more without it, and say so in the logs. */
+      if (!r.ok && /transcri/i.test(JSON.stringify(data))) {
+        console.error("Realtime transcription refused, talking without it:", JSON.stringify(data).slice(0, 300));
+        r = await mint(false);
+        data = await r.json().catch(() => ({}));
+      }
       if (!r.ok) {
         console.error("Realtime token failed:", JSON.stringify(data).slice(0, 300));
         return res.status(502).json({
@@ -1155,7 +1171,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
             type: "realtime",
             model: REALTIME_MODEL,
             instructions: systemPrompt(s, { spoken: true }),
-            audio: { output: { voice: REALTIME_VOICE } },
+            audio: realtimeAudio(true),
             tools: REALTIME_TOOLS,
             tool_choice: "auto"
           }

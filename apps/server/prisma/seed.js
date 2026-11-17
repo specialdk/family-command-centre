@@ -56,9 +56,14 @@ const PEOPLE = [
 const LISTS = ["Family", "Home", "School", "Work", "Unallocated"];
 
 async function main() {
-  // --- people: always reconciled, safe to re-run -------------------------
+  /* Demo events, tasks and shopping only ever go into a brand-new database.
+     The family now uses this for real: "Clear list" on an empty shopping
+     list must not bring the demo groceries back on the next deploy. */
+  const firstRun = (await prisma.familyMember.count()) === 0;
+
+  // --- people: created once; Settings owns them after that ---------------
   for (const p of PEOPLE) {
-    await prisma.familyMember.upsert({ where: { name: p.name }, update: p, create: p });
+    await prisma.familyMember.upsert({ where: { name: p.name }, update: {}, create: p });
   }
 
   /* How the names are said, for speech only. Seeded once and never
@@ -99,7 +104,7 @@ async function main() {
   const cal = Object.fromEntries(cals.map((c) => [c.name, c.id]));
 
   // --- events: only when empty, so real entries are never trampled -------
-  if ((await prisma.event.count()) === 0) {
+  if (firstRun && (await prisma.event.count()) === 0) {
     await prisma.event.createMany({
       data: [
         { calendarId: cal.Family, memberId: by.Lachie, title: "Lachie's match",
@@ -123,7 +128,7 @@ async function main() {
   }
 
   // --- tasks and routines ------------------------------------------------
-  if ((await prisma.task.count()) === 0) {
+  if (firstRun && (await prisma.task.count()) === 0) {
     await prisma.task.createMany({
       data: [
         { title: "Allocate times for Jack's learner-driver practice", listId: list.Family, memberId: by.Rhian },
@@ -151,7 +156,7 @@ async function main() {
   }
 
   // --- shopping ----------------------------------------------------------
-  if ((await prisma.shoppingItem.count()) === 0) {
+  if (firstRun && (await prisma.shoppingItem.count()) === 0) {
     await prisma.shoppingItem.createMany({
       data: [
         { name: "Milk",          quantity: "2 × 2L",      store: "ALDI",   addedById: by.Danielle, position: 1 },

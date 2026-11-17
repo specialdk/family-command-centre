@@ -17,6 +17,8 @@
    shape it could arrive in and de-duplicates by call_id, which is the
    honest way to write against a detail you cannot confirm. */
 
+import { writtenAs } from "./voice.js";
+
 export const canTalk = typeof window !== "undefined"
   && typeof window.RTCPeerConnection !== "undefined"
   && !!navigator?.mediaDevices?.getUserMedia;
@@ -51,7 +53,7 @@ function functionCallsIn(msg, names) {
  * onEvent gets {kind, ...} for the UI: "listening", "thinking", "speaking",
  * "said" (what the person said), "reply" (what Jade said), "proposal".
  */
-export async function startConversation({ onEvent, onError, speaker = null, aboutTaskId = null, idea = null }) {
+export async function startConversation({ onEvent, onError, speaker = null, aboutTaskId = null, idea = null, pronunciations = null }) {
   if (!canTalk) throw new Error("This browser cannot hold a conversation.");
 
   /* The microphone first: if it is refused, nothing else is worth doing, and
@@ -108,8 +110,8 @@ export async function startConversation({ onEvent, onError, speaker = null, abou
 
     /* Transcripts, so there is something on screen as well as in the air -
        useful in a noisy kitchen, and the only record of what was asked. */
-    const saidText = msg?.transcript;
-    if (typeof saidText === "string" && saidText.trim()) {
+    const saidText = typeof msg?.transcript === "string" ? writtenAs(msg.transcript, pronunciations) : null;
+    if (saidText && saidText.trim()) {
       if (/input_audio_transcription/.test(msg.type || "")) {
         onEvent?.({ kind: "said", text: saidText.trim() });
         lines.push(`${speaker || "Them"}: ${saidText.trim()}`);

@@ -207,6 +207,34 @@ export function createIdeas({ prisma, familyTz, openai }) {
       if (!String(args.title || "").trim() || !String(args.short_line || "").trim()) {
         return { output: "Not saved: give it a title and a short line." };
       }
+      /* One conversation, one idea. The model has been seen calling
+         save_idea twice in the same breath (two cards, a second apart); a
+         second save from the same person within 30 seconds updates the
+         first instead. */
+      const recent = await prisma.idea.findFirst({
+        where: { authorId: speaker.id, createdAt: { gte: new Date(Date.now() - 30 * 1000) } },
+        orderBy: { createdAt: "desc" }
+      });
+      if (recent) {
+        await prisma.idea.update({
+          where: { id: recent.id },
+          data: {
+            title: clip(args.title, 120),
+            shortLine: clip(args.short_line, 200),
+            summary: clip(args.summary, 2000) || recent.summary
+          }
+        });
+        if (transcript) {
+          await prisma.ideaEntry.updateMany({
+            where: { ideaId: recent.id, kind: "CONVERSATION" },
+            data: { text: clip(transcript, 20000) }
+          });
+        }
+        return {
+          output: `Saved "${clip(args.title, 120)}" to the ideas board. Confirm it in a few words.`,
+          applied: { kind: "idea", ideaId: recent.id, title: clip(args.title, 120) }
+        };
+      }
       const idea = await prisma.idea.create({
         data: {
           title: clip(args.title, 120),

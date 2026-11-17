@@ -15,6 +15,13 @@ const colourOf = (m) => (m && KNOWN.includes(m.name.toLowerCase()) ? `var(--${m.
 const fmt = (d, o) => new Intl.DateTimeFormat("en-AU", o).format(new Date(d));
 const time = (d) => fmt(d, { hour: "numeric", minute: "2-digit" });
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+/* A missed due date reads "Due Thu 12 Nov · planned Sun 10:00 am", as on Tasks. */
+const whenBits = (t) => {
+  const late = t.dueAt && new Date(new Date(t.dueAt).setHours(23, 59, 59, 999)) < new Date();
+  const day = (d) => fmt(d, { weekday: "short", day: "numeric", month: "short" });
+  if (late) return [`Due ${day(t.dueAt)}`, t.scheduledFor ? `planned ${day(t.scheduledFor)} ${time(t.scheduledFor)}` : null];
+  return [whenOf(t) ? `${day(whenOf(t))} ${time(whenOf(t))}` : null];
+};
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; };
 
 const card = { background: "#fff", border: "1px solid var(--line)", borderRadius: 20, padding: "16px 18px", boxShadow: "0 8px 24px #1d2a4a0a", minWidth: 0 };
@@ -47,6 +54,9 @@ export default function DesktopHome({ api, version, viewer, members, allTasks, o
     .filter((e) => new Date(e.endsAt || e.startsAt) >= now && new Date(e.startsAt) < weekEnd)
     .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)), [events, +today]);
   const routines = chores.filter((c) => !c.completed);
+  /* "Today" is everything still to come today - tasks due and events -
+     so a basketball game tonight is not "0 today". */
+  const laterToday = occ.filter((e) => new Date(e.startsAt) < new Date(today.getTime() + DAY)).length;
 
   const [dinner, setDinner] = useState(undefined);
   const [tomorrow, setTomorrow] = useState(null);
@@ -77,7 +87,7 @@ export default function DesktopHome({ api, version, viewer, members, allTasks, o
         <strong style={{ display: "block", fontSize: 14 }}>{t.title}{t.needsHelp ? " 🙋" : ""}</strong>
         <small style={{ color: bucket(t, now) === "overdue" ? "var(--coral)" : "var(--muted)", fontWeight: bucket(t, now) === "overdue" ? 800 : 500 }}>
           {[bucket(t, now) === "overdue" ? "Overdue" : null, everyone || t.memberId !== viewer?.id ? (t.member?.name || "Unallocated") : null,
-            whenOf(t) ? `${fmt(whenOf(t), { weekday: "short", day: "numeric", month: "short" })} ${time(whenOf(t))}` : null].filter(Boolean).join(" · ")}
+            ...whenBits(t)].filter(Boolean).join(" · ")}
         </small>
       </span>
       <span style={{ color: "#c3c7d0" }}>›</span>
@@ -92,7 +102,7 @@ export default function DesktopHome({ api, version, viewer, members, allTasks, o
           <p className="eyebrow" style={{ color: "#f0c987", margin: 0 }}>YOUR DAY · {fmt(now, { weekday: "long", day: "numeric", month: "long" }).toUpperCase()}</p>
           <h2 style={{ margin: "6px 0 4px", fontSize: 28 }}>{greeting()}{viewer ? `, ${viewer.name}` : ""}</h2>
           <p style={{ margin: 0, fontSize: 14, opacity: 0.9 }}>
-            {unread.length ? `${unread.length} new family notice${unread.length === 1 ? "" : "s"} below · ` : "✓ Everyone's up to date · "}
+            {unread.length ? `${unread.length} new family notice${unread.length === 1 ? "" : "s"} below · ` : "✓ No new family notices · "}
             <button type="button" onClick={onHistory} style={{ border: 0, background: "none", color: "inherit", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit" }}>Recent activity</button>
             {" · "}
             <button type="button" onClick={onCompose} style={{ border: 0, background: "none", color: "inherit", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit" }}>Notify family</button>
@@ -100,7 +110,7 @@ export default function DesktopHome({ api, version, viewer, members, allTasks, o
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Chip n={overdue} label="Overdue" tone="var(--coral)" onClick={() => go("tasks")} />
-          <Chip n={due.length - overdue} label="Today" tone="var(--navy)" onClick={() => go("tasks")} />
+          <Chip n={due.length - overdue + laterToday} label="Today" tone="var(--navy)" onClick={() => go(laterToday ? "calendar" : "tasks")} />
           <Chip n={occ.length} label="This week" tone="var(--navy)" onClick={() => go("calendar")} />
         </div>
       </section>
@@ -149,7 +159,7 @@ export default function DesktopHome({ api, version, viewer, members, allTasks, o
                 const items = [...eventsOn(d).map((e) => ({ k: `e${e.id}${e.startsAt}`, t: e.title, c: colourOf(e.member) })),
                                ...tasksOn(d).map((t) => ({ k: `t${t.id}`, t: t.title, c: colourOf(t.member), task: true }))];
                 return (
-                  <div key={+d} style={{ borderRadius: 14, padding: "8px 8px 10px", minHeight: 96, minWidth: 0,
+                  <div key={+d} style={{ borderRadius: 14, padding: "8px 8px 10px", minHeight: 140, minWidth: 0,
                                          background: i === 0 ? "color-mix(in srgb, var(--coral) 7%, white)" : "#fbfcff",
                                          border: `1px solid ${i === 0 ? "color-mix(in srgb, var(--coral) 40%, white)" : "var(--line)"}` }}>
                     <div style={{ fontSize: 12, fontWeight: 900, color: i === 0 ? "var(--coral)" : "var(--muted)", marginBottom: 6 }}>
