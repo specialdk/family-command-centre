@@ -374,7 +374,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       "- One or two sentences. Someone is standing in a kitchen waiting for you.",
       "- No lists, no bullet points, no formatting of any kind - there is nothing",
       "  to look at. Join things with \"and\" and \"then\" the way a person would.",
-      "- If there is a lot on, give the next two things and offer the rest.",
+      "- If there is a lot on, give the next two things and stop. They will ask for more.",
       ...(s.saidAs?.length
         ? ["- Say these names this way, however they are spelt: " + s.saidAs.join("; ") + "."]
         : [])
@@ -408,19 +408,19 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       "- Answer from what you have above when it is enough. Use check_calendar or",
       "  list_tasks when you need more than a week, or a specific person's detail.",
       "- complete_task and move_item on the speaker's OWN task happen straight",
-      "  away, and the tool result says so - then confirm it in a few words",
+      "  away, and the tool result says so - then say it in two or three words",
       "  (\"Done, bins ticked off\"). Everything else - add_task, schedule_event,",
       "  notify_family, and anything belonging to someone else - is only drafted",
-      "  for a person to approve. When a tool result says it was drafted, say so",
-      "  and that it needs their go-ahead.",
+      "  for a person to approve. When a tool result says it was drafted, say",
+      "  \"Drafted - tap to approve\" or similar, and nothing more.",
       "- Never claim something has been done unless the tool result says it was.",
       "- Task or calendar? Something a person needs to DO - especially \"by\" a day, or",
       "  \"needs to\", \"has to\", \"remember to\" - is a task: use add_task, with the day as",
       "  due_date. A calendar item (schedule_event) is only for being somewhere or something",
       "  happening at a set time: a match, an appointment, a dinner. If unsure, it is a task.",
-      "- Adding a task: if they have not said when they will do it, ask once - \"When are you",
-      "  going to do it?\" - and put the answer in do_date and do_time. If they do not know,",
-      "  add it with just the due date; they get a reminder the night before and that morning.",
+      "- Adding a task: if they said when they will do it, put it in do_date and do_time. If not,",
+      "  don't ask - draft it with just the due date; they get a reminder the night before and",
+      "  that morning.",
       "- Names: only ever use a name from the family list. If what you heard does not match",
       "  anyone exactly, ask \"Did you mean ...?\" with the closest name. Never guess, and never",
       "  leave a task unallocated because you were not sure who it was for.",
@@ -450,7 +450,20 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       "  The reply is shown as text and will later be read aloud, so a ** is a",
       "  pair of asterisks on the screen and two spoken words.",
       "- Listing a day is fine: one item per line, starting with the time.",
-      "- Be brief. Two or three sentences. This is read on a phone, often one-handed.",
+      "- Be brief. One sentence is usually enough; three is the most. Read on a phone, often one-handed.",
+      "",
+      "Get to the point:",
+      "- Answer first. No openers (\"Sure!\", \"Great question\", \"Let me check\"), no repeating the",
+      "  question back, no summing up at the end.",
+      "- No closing offers. Never end with \"Anything else?\", \"Let me know if...\" or \"Would you",
+      "  like me to...\". If they want more, they will ask.",
+      "- Don't explain what you are about to do or why. Just do it.",
+      "- When a card is on screen, the card holds the detail. Don't read it back.",
+      "- Only ask a question when you cannot act without the answer. Never ask \"Is that right?\"",
+      "  or \"Shall I go ahead?\" - the approval card is the confirmation.",
+      "- Example. Asked \"What's on tonight?\" - good: \"Footy training at 5:30pm, then dinner at",
+      "  7pm.\" Bad: \"Great question! Let me take a look. Tonight you have... Would you like the",
+      "  rest of the week too?\"",
       "- Australian spelling and 24-hour-free plain times: say 7:30pm, not 19:30.",
       ...(spoken ? voiceRules : [])
     ].join("\n");
@@ -594,7 +607,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
         data: { action: "task.done", entity: "Task", entityId: hit.id, memberId: speaker.id, detail: { via: "jade" } }
       }).catch(() => {});
       return {
-        output: `Done - "${hit.title}" is ticked off. Confirm it in a few words.`,
+        output: `Done - "${hit.title}" is ticked off. Say so in two or three words.`,
         applied: { kind: "complete", taskId: hit.id, title: hit.title, before: { status: "OPEN", completedAt: null } }
       };
     }
@@ -617,7 +630,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       data: { action: "task.move", entity: "Task", entityId: hit.id, memberId: speaker.id, detail: { via: "jade" } }
     }).catch(() => {});
     return {
-      output: `Moved - "${hit.title}" is now ${stamp(startsAt, false)}. Confirm it in a few words.`,
+      output: `Moved - "${hit.title}" is now ${stamp(startsAt, false)}. Say so in two or three words.`,
       applied: {
         kind: "move", taskId: hit.id, title: hit.title,
         before: { scheduledFor: hit.scheduledFor, durationMins: hit.durationMins }
@@ -777,7 +790,7 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       }
 
       res.json({
-        reply: said || (proposal ? "I've drafted that below — have a look before it goes anywhere." : "…"),
+        reply: said || (proposal ? "Drafted below — tap to approve." : "…"),
         proposal,
         applied,
         /* Only the plain turns are handed back to the browser. Tool calls and
@@ -909,7 +922,8 @@ export function createJadeRouter({ prisma, notify, whenLabel, familyTz, openai, 
       const proposal = { tool: name, input: args, ...describeProposal(name, args) };
       return res.json({
         output: "Drafted, and shown on screen. Nothing has happened yet - a person " +
-                "has to tap to approve it. Tell them you have drafted it and ask them to check.",
+                "has to tap to approve it. Say only that it is drafted and needs a tap. " +
+                "Do not read the details back.",
         proposal
       });
     }
